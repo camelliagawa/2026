@@ -144,6 +144,13 @@ header .subtitle {
   object-fit: contain;
 }
 
+#annotated-canvas {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 4px;
+}
+
 /* ======= Tab Navigation (モバイルのみ) ======= */
 #tab-nav {
   display: flex;

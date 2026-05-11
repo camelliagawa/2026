@@ -68,6 +68,8 @@ const elems = {
   resAngle:           $('res-angle'),
   resCalib:           $('res-calib'),
   opencvStatus:       $('opencv-status'),
+  annotatedCanvas:    $('annotated-canvas'),
+  resultImageBox:     $('result-image-box'),
   historyBody:        $('history-body'),
   btnClearHistory:    $('btn-clear-history'),
   btnExportCsv:       $('btn-export-csv'),
@@ -698,9 +700,9 @@ function detectKnifeFrame(saveResult = false) {
     clearOverlay();
 
     if (bestContour && bestRect) {
+      const rectPts = cv.RotatedRect.points(bestRect.rect);
       if (state.params.showContours) {
-        const pts = cv.RotatedRect.points(bestRect.rect);
-        drawRotatedRect(overlayCtx, pts, '#00ff88', 2);
+        drawRotatedRect(overlayCtx, rectPts, '#00ff88', 2);
       }
 
       const totalLengthPx = bestRect.w;   // 刃＋柄の全長
@@ -708,7 +710,8 @@ function detectKnifeFrame(saveResult = false) {
       const angleRaw      = bestRect.rect.angle;
 
       // 幅プロファイル解析で刃部分のみの長さを推定
-      const bladeOnlyPx = estimateBladeLength(bestContour, bestRect.rect) ?? totalLengthPx;
+      const bladeResult = estimateBladeLength(bestContour, bestRect.rect);
+      const bladeOnlyPx = bladeResult ? bladeResult.lengthPx : totalLengthPx;
 
       let bladeOnlyMm   = null;
       let totalLengthMm = null;
@@ -728,6 +731,8 @@ function detectKnifeFrame(saveResult = false) {
         bladeWidthPx,  bladeWidthMm,
         bbox, angle: angleRaw,
       });
+
+      drawAnnotatedResult(tmpCanvas, rectPts, bladeResult, state.calibPixelsPerMm);
 
       if (saveResult) {
         addHistory({
@@ -787,6 +792,113 @@ function drawRotatedRect(ctx, pts, color, lineWidth) {
 function clearOverlay() {
   const ctx = elems.overlayCanvas.getContext('2d');
   ctx.clearRect(0, 0, elems.overlayCanvas.width, elems.overlayCanvas.height);
+}
+
+// =====================================================================
+// 計測結果アノテーション描画
+// =====================================================================
+function drawAnnotatedResult(srcCanvas, rectPts, bladeResult, calibPpm) {
+  const ac = elems.annotatedCanvas;
+  ac.width  = srcCanvas.width;
+  ac.height = srcCanvas.height;
+  const ctx = ac.getContext('2d');
+
+  // 元フレームを描画
+  ctx.drawImage(srcCanvas, 0, 0);
+
+  // バウンディングボックス（破線）
+  ctx.save();
+  ctx.strokeStyle = 'rgba(0,255,136,0.6)';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([8, 4]);
+  ctx.beginPath();
+  ctx.moveTo(rectPts[0].x, rectPts[0].y);
+  for (let i = 1; i < 4; i++) ctx.lineTo(rectPts[i].x, rectPts[i].y);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.restore();
+
+  if (bladeResult) {
+    const { lengthPx, tipPt, juncPt, handleEndPt } = bladeResult;
+    const bladeLabel = calibPpm
+      ? `刃渡り ${(lengthPx / calibPpm).toFixed(1)} mm`
+      : `刃渡り ${lengthPx.toFixed(0)} px`;
+
+    // 柄ライン（橙）
+    drawMeasLine(ctx, juncPt, handleEndPt, '#ff9900', '柄', 3, 5, 6);
+    // 刃ライン（緑）
+    drawMeasLine(ctx, tipPt, juncPt, '#00e87a', bladeLabel, 3, 8, 8);
+
+    // 刃元マーカー
+    ctx.beginPath();
+    ctx.arc(juncPt.x, juncPt.y, 10, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,153,0,0.85)';
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  elems.resultImageBox.classList.remove('hidden');
+}
+
+function drawMeasLine(ctx, p1, p2, color, label, lw, dotR, tickLen) {
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len < 1) return;
+
+  const nx = -dy / len;
+  const ny =  dx / len;
+  const fs = Math.max(14, Math.min(22, Math.round(len / 8)));
+
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lw;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 5;
+
+  // メインライン
+  ctx.beginPath();
+  ctx.moveTo(p1.x, p1.y);
+  ctx.lineTo(p2.x, p2.y);
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // 端部チック
+  [p1, p2].forEach(p => {
+    ctx.beginPath();
+    ctx.moveTo(p.x + nx * tickLen, p.y + ny * tickLen);
+    ctx.lineTo(p.x - nx * tickLen, p.y - ny * tickLen);
+    ctx.stroke();
+  });
+
+  // 端点ドット
+  ctx.fillStyle = color;
+  [p1, p2].forEach(p => {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, dotR, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // ラベル（中点から法線方向にオフセット）
+  const mx = (p1.x + p2.x) / 2;
+  const my = (p1.y + p2.y) / 2;
+  const offset = fs + tickLen + 6;
+  const lx = mx + nx * offset;
+  const ly = my + ny * offset;
+
+  ctx.font = `bold ${fs}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const tw = ctx.measureText(label).width;
+
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(lx - tw / 2 - 5, ly - fs * 0.65, tw + 10, fs * 1.3);
+  ctx.fillStyle = color;
+  ctx.fillText(label, lx, ly);
+
+  ctx.restore();
 }
 
 // =====================================================================
@@ -858,8 +970,21 @@ function estimateBladeLength(contour, rect) {
     junctionBin = idx >= 0 ? BINS - 1 - idx : 0;
   }
 
-  const tipBin = tipSide === 'left' ? 0 : BINS - 1;
-  return Math.abs(junctionBin - tipBin) * binSize;
+  const tipBin  = tipSide === 'left' ? 0 : BINS - 1;
+  const lengthPx = Math.abs(junctionBin - tipBin) * binSize;
+
+  // 回転座標から元画像座標へ逆変換（中心線 y_rot=0 として）
+  const tipX_rot    = tipSide === 'left' ? minX : maxX;
+  const juncX_rot   = minX + junctionBin * binSize;
+  const handleX_rot = tipSide === 'left' ? maxX : minX;
+  const imgPt = xr => ({ x: cos * xr + cx, y: sin * xr + cy });
+
+  return {
+    lengthPx,
+    tipPt:       imgPt(tipX_rot),
+    juncPt:      imgPt(juncX_rot),
+    handleEndPt: imgPt(handleX_rot),
+  };
 }
 
 // =====================================================================
@@ -991,6 +1116,7 @@ elems.btnReset.addEventListener('click', () => {
   elems.processedCanvas.getContext('2d').clearRect(
     0, 0, elems.processedCanvas.width, elems.processedCanvas.height
   );
+  elems.resultImageBox.classList.add('hidden');
   log('全設定をリセット', 'warn');
 });
 
