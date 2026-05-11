@@ -67,6 +67,7 @@ const elems = {
   unitBbox:           $('unit-bbox'),
   resAngle:           $('res-angle'),
   resCalib:           $('res-calib'),
+  opencvStatus:       $('opencv-status'),
   historyBody:        $('history-body'),
   btnClearHistory:    $('btn-clear-history'),
   btnExportCsv:       $('btn-export-csv'),
@@ -93,11 +94,19 @@ function log(msg, type = 'info') {
 window.onOpenCvReady = () => {
   state.opencvReady = true;
   log('OpenCV.js 読み込み完了', 'info');
+  elems.opencvStatus.textContent = 'OpenCV 準備完了 ✓';
+  elems.opencvStatus.className = 'opencv-status opencv-ready';
+  if (state.cameraActive) {
+    elems.btnAutoDetect.disabled = false;
+    elems.btnCapture.disabled = false;
+  }
   initCameraList();
 };
 
 window.onOpenCvError = () => {
   log('OpenCV.js 読み込み失敗。手動計測モードは引き続き使用できます。', 'warn');
+  elems.opencvStatus.textContent = 'OpenCV 読み込み失敗（手動計測のみ使用可）';
+  elems.opencvStatus.className = 'opencv-status opencv-error';
   initCameraList();
 };
 
@@ -159,7 +168,12 @@ async function startCamera() {
     }
 
     elems.video.srcObject = state.stream;
-    await new Promise(r => { elems.video.onloadedmetadata = r; });
+    await new Promise(resolve => {
+      let done = false;
+      const finish = () => { if (!done) { done = true; resolve(); } };
+      elems.video.addEventListener('loadedmetadata', finish, { once: true });
+      setTimeout(finish, 5000); // 5秒でタイムアウト
+    });
     elems.video.play();
 
     resizeOverlayCanvas();
@@ -168,9 +182,9 @@ async function startCamera() {
     elems.btnStopCamera.disabled = false;
     elems.btnFlipCamera.disabled = false;
     elems.btnCalibrate.disabled = false;
-    elems.btnAutoDetect.disabled = false;
     elems.btnManualMeasure.disabled = false;
-    elems.btnCapture.disabled = false;
+    elems.btnAutoDetect.disabled = !state.opencvReady;
+    elems.btnCapture.disabled = !state.opencvReady;
 
     const facing = state.facingMode === 'environment' ? '背面' : '前面';
     log(`カメラ開始: ${elems.video.videoWidth}x${elems.video.videoHeight} (${deviceId ? 'デバイス指定' : facing})`, 'info');
