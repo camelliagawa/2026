@@ -11,6 +11,7 @@ body {
   background: #1a1a2e;
   color: #e0e0e0;
   min-height: 100vh;
+  /* スマホでのスクロールをスムーズに */
   -webkit-overflow-scrolling: touch;
 }
 
@@ -60,6 +61,7 @@ header .subtitle {
   border-radius: 10px;
   overflow: hidden;
   border: 2px solid #0f3460;
+  /* 縦画面で画面の上半分を活用 */
   max-height: 55vh;
   aspect-ratio: 4/3;
 }
@@ -79,6 +81,7 @@ header .subtitle {
   height: 100%;
   pointer-events: all;
   cursor: crosshair;
+  /* タッチ操作のデフォルト動作（スクロール等）を抑制 */
   touch-action: none;
 }
 
@@ -91,6 +94,7 @@ header .subtitle {
 #crosshair-h { left: 0; right: 0; height: 1px; top: 50%; }
 #crosshair-v { top: 0; bottom: 0; width: 1px; left: 50%; }
 
+/* カメラ切替ボタン（映像に重ねて表示） */
 .btn-overlay {
   position: absolute;
   top: 10px;
@@ -181,7 +185,7 @@ header .subtitle {
   gap: 10px;
 }
 
-/* ======= Control Group ======= */
+/* ======= Control Group (操作パネル内) ======= */
 .control-group {
   background: #0f3460;
   border-radius: 10px;
@@ -336,6 +340,7 @@ select:focus, input:focus {
   border-radius: 3px;
   border: none;
   padding: 0;
+  /* タッチ操作のために高さを確保 */
   cursor: pointer;
 }
 
@@ -538,6 +543,7 @@ select:focus, input:focus {
   #tab-result    { grid-area: result;  display: flex !important; }
   #tab-history   { grid-area: history; display: flex !important; }
 
+  /* デスクトップではタブナビ非表示 */
   #tab-nav {
     display: none;
   }
@@ -554,6 +560,7 @@ select:focus, input:focus {
     font-size: 0.78rem;
   }
 
+  /* デスクトップでは少しコンパクトに */
   .btn {
     padding: 9px 14px;
     min-height: 38px;

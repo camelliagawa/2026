@@ -1,16 +1,19 @@
 'use strict';
 
+// =====================================================================
+// 状態管理
+// =====================================================================
 const state = {
   opencvReady: false,
   cameraActive: false,
   stream: null,
-  facingMode: 'environment',
-  calibPixelsPerMm: null,
+  facingMode: 'environment',     // 'environment'=背面 / 'user'=前面
+  calibPixelsPerMm: null,        // px/mm
   calibrating: false,
-  calibStart: null,
-  calibEnd: null,
+  calibStart: null,              // {x, y} canvas座標
+  calibEnd: null,                // {x, y} canvas座標
   manualMode: false,
-  manualPoints: [],
+  manualPoints: [],              // 手動計測点 [{x,y}, ...]
   history: [],
   autoDetectRunning: false,
   animFrameId: null,
@@ -23,6 +26,9 @@ const state = {
   },
 };
 
+// =====================================================================
+// DOM参照
+// =====================================================================
 const $ = id => document.getElementById(id);
 
 const elems = {
@@ -52,8 +58,13 @@ const elems = {
   processedCanvas:    $('processed-canvas'),
   resStatus:          $('res-status'),
   resBladeLength:     $('res-blade-length'),
+  unitBladeLength:    $('unit-blade-length'),
+  resTotalLength:     $('res-total-length'),
+  unitTotalLength:    $('unit-total-length'),
   resBladeWidth:      $('res-blade-width'),
+  unitBladeWidth:     $('unit-blade-width'),
   resBbox:            $('res-bbox'),
+  unitBbox:           $('unit-bbox'),
   resAngle:           $('res-angle'),
   resCalib:           $('res-calib'),
   historyBody:        $('history-body'),
@@ -62,6 +73,9 @@ const elems = {
   logOutput:          $('log-output'),
 };
 
+// =====================================================================
+// ログ
+// =====================================================================
 function log(msg, type = 'info') {
   const div = document.createElement('div');
   div.className = `log-${type}`;
@@ -73,6 +87,9 @@ function log(msg, type = 'info') {
   }
 }
 
+// =====================================================================
+// OpenCV 準備
+// =====================================================================
 window.onOpenCvReady = () => {
   state.opencvReady = true;
   log('OpenCV.js 読み込み完了', 'info');
@@ -84,12 +101,18 @@ window.onOpenCvError = () => {
   initCameraList();
 };
 
+// =====================================================================
+// カメラ一覧取得
+// =====================================================================
 async function initCameraList() {
   try {
+    // カメラ許可取得のために一時ストリームを開く
     const tmp = await navigator.mediaDevices.getUserMedia({ video: true });
     tmp.getTracks().forEach(t => t.stop());
+
     const devices = await navigator.mediaDevices.enumerateDevices();
     const videoDevices = devices.filter(d => d.kind === 'videoinput');
+
     elems.cameraSelect.innerHTML = '';
     videoDevices.forEach((d, i) => {
       const opt = document.createElement('option');
@@ -97,6 +120,7 @@ async function initCameraList() {
       opt.textContent = d.label || `カメラ ${i + 1}`;
       elems.cameraSelect.appendChild(opt);
     });
+
     if (videoDevices.length === 0) {
       log('カメラが見つかりません', 'error');
     } else {
@@ -107,28 +131,37 @@ async function initCameraList() {
   }
 }
 
+// =====================================================================
+// カメラ開始・停止
+// =====================================================================
 elems.btnStartCamera.addEventListener('click', startCamera);
 elems.btnStopCamera.addEventListener('click', stopCamera);
 
 async function startCamera() {
   const deviceId = elems.cameraSelect.value;
+
+  // deviceId指定がある場合はそれを優先、なければfacingModeを使用
   let constraints = deviceId
     ? { video: { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 960 } } }
     : { video: { facingMode: state.facingMode, width: { ideal: 1280 }, height: { ideal: 960 } } };
+
   try {
     if (state.stream) stopCameraStream();
     try {
       state.stream = await navigator.mediaDevices.getUserMedia(constraints);
     } catch (_) {
+      // 解像度指定で失敗した場合はシンプルな制約でリトライ
       log('高解像度で失敗。標準解像度で再試行します。', 'warn');
       const fallback = deviceId
         ? { video: { deviceId: { exact: deviceId } } }
         : { video: { facingMode: state.facingMode } };
       state.stream = await navigator.mediaDevices.getUserMedia(fallback);
     }
+
     elems.video.srcObject = state.stream;
     await new Promise(r => { elems.video.onloadedmetadata = r; });
     elems.video.play();
+
     resizeOverlayCanvas();
     state.cameraActive = true;
     elems.btnStartCamera.disabled = true;
@@ -138,6 +171,7 @@ async function startCamera() {
     elems.btnAutoDetect.disabled = false;
     elems.btnManualMeasure.disabled = false;
     elems.btnCapture.disabled = false;
+
     const facing = state.facingMode === 'environment' ? '背面' : '前面';
     log(`カメラ開始: ${elems.video.videoWidth}x${elems.video.videoHeight} (${deviceId ? 'デバイス指定' : facing})`, 'info');
   } catch (err) {
@@ -168,9 +202,12 @@ function stopCamera() {
   log('カメラ停止', 'info');
 }
 
+// =====================================================================
+// 前後カメラ切替
+// =====================================================================
 elems.btnFlipCamera.addEventListener('click', async () => {
   state.facingMode = state.facingMode === 'environment' ? 'user' : 'environment';
-  elems.cameraSelect.value = '';
+  elems.cameraSelect.value = ''; // deviceId指定を解除してfacingModeで起動
   log(`カメラを${state.facingMode === 'environment' ? '背面' : '前面'}に切替`, 'info');
   await startCamera();
 });
@@ -184,6 +221,9 @@ function resizeOverlayCanvas() {
   elems.processedCanvas.height = vh;
 }
 
+// =====================================================================
+// タブ切替（モバイル用）
+// =====================================================================
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -194,6 +234,9 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
   });
 });
 
+// =====================================================================
+// パラメータ同期
+// =====================================================================
 elems.cannyLow.addEventListener('input', () => {
   state.params.cannyLow = +elems.cannyLow.value;
   elems.cannyLowVal.textContent = elems.cannyLow.value;
@@ -212,16 +255,29 @@ elems.showEdges.addEventListener('change', () => {
 elems.showContours.addEventListener('change', () => {
   state.params.showContours = elems.showContours.checked;
 });
+
 elems.refType.addEventListener('change', () => {
-  const presets = { 'credit-card': 85, 'a4-short': 210, 'coin-500': 26.5, 'custom': +elems.refLength.value };
+  const presets = {
+    'credit-card': 85,
+    'a4-short': 210,
+    'coin-500': 26.5,
+    'custom': +elems.refLength.value,
+  };
   const v = presets[elems.refType.value];
   if (v !== undefined) elems.refLength.value = v;
 });
 
+// =====================================================================
+// キャリブレーション
+// =====================================================================
 elems.btnCalibrate.addEventListener('click', toggleCalibration);
 
 function toggleCalibration() {
-  if (state.calibrating) { cancelCalibration(); } else { startCalibration(); }
+  if (state.calibrating) {
+    cancelCalibration();
+  } else {
+    startCalibration();
+  }
 }
 
 function startCalibration() {
@@ -229,6 +285,7 @@ function startCalibration() {
   state.calibStart = null;
   state.calibEnd = null;
   exitManualModeQuiet();
+
   elems.btnCalibrate.textContent = 'キャリブレーション中止';
   elems.btnCalibrate.className = 'btn btn-danger';
   elems.calibStatus.textContent = '基準物体の一端をタップしてください';
@@ -259,7 +316,10 @@ function drawCalibGuide() {
   ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2);
   ctx.stroke();
   ctx.setLineDash([]);
-  if (state.calibStart) drawPoint(ctx, state.calibStart, '#ffff00', 10, '始点');
+
+  if (state.calibStart) {
+    drawPoint(ctx, state.calibStart, '#ffff00', 10, '始点');
+  }
   if (state.calibStart && state.calibEnd) {
     drawPoint(ctx, state.calibEnd, '#ffff00', 10, '終点');
     ctx.beginPath();
@@ -271,23 +331,45 @@ function drawCalibGuide() {
   }
 }
 
+// =====================================================================
+// キャンバス座標変換（マウス・タッチ共通）
+// =====================================================================
 function canvasCoords(e) {
   const rect = elems.overlayCanvas.getBoundingClientRect();
   const scaleX = elems.overlayCanvas.width / rect.width;
   const scaleY = elems.overlayCanvas.height / rect.height;
-  const src = e.changedTouches ? e.changedTouches[0] : (e.touches ? e.touches[0] : e);
-  return { x: (src.clientX - rect.left) * scaleX, y: (src.clientY - rect.top) * scaleY };
+  // touchend は changedTouches、touchmove は touches、マウスは clientX/Y
+  const src = e.changedTouches
+    ? e.changedTouches[0]
+    : (e.touches ? e.touches[0] : e);
+  return {
+    x: (src.clientX - rect.left) * scaleX,
+    y: (src.clientY - rect.top) * scaleY,
+  };
 }
 
+// =====================================================================
+// キャンバスイベントリスナー（マウス + タッチ）
+// =====================================================================
 elems.overlayCanvas.addEventListener('click', onCanvasClick);
-elems.overlayCanvas.addEventListener('touchend', (e) => { e.preventDefault(); onCanvasClick(e); }, { passive: false });
+
+elems.overlayCanvas.addEventListener('touchend', (e) => {
+  e.preventDefault(); // ダブルタップズームを防止
+  onCanvasClick(e);
+}, { passive: false });
+
 elems.overlayCanvas.addEventListener('mousemove', onCanvasMouseMove);
-elems.overlayCanvas.addEventListener('touchmove', (e) => { e.preventDefault(); onCanvasMouseMove(e); }, { passive: false });
+
+elems.overlayCanvas.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  onCanvasMouseMove(e);
+}, { passive: false });
 
 function onCanvasMouseMove(e) {
   if (!state.calibrating && !state.manualMode) return;
   const pos = canvasCoords(e);
   const ctx = elems.overlayCanvas.getContext('2d');
+
   if (state.calibrating) {
     drawCalibGuide();
     if (state.calibStart) {
@@ -307,8 +389,12 @@ function onCanvasMouseMove(e) {
 
 function onCanvasClick(e) {
   const pos = canvasCoords(e);
-  if (state.calibrating) handleCalibClick(pos);
-  else if (state.manualMode) handleManualClick(pos);
+
+  if (state.calibrating) {
+    handleCalibClick(pos);
+  } else if (state.manualMode) {
+    handleManualClick(pos);
+  }
 }
 
 function handleCalibClick(pos) {
@@ -327,6 +413,7 @@ function finishCalibration() {
   const dy = state.calibEnd.y - state.calibStart.y;
   const pixelDist = Math.sqrt(dx * dx + dy * dy);
   const realMm = +elems.refLength.value;
+
   if (pixelDist < 10) {
     log('タップ点が近すぎます。もう一度試してください。', 'warn');
     state.calibStart = null;
@@ -334,20 +421,30 @@ function finishCalibration() {
     elems.calibStatus.textContent = '始点をタップしてください';
     return;
   }
+
   state.calibPixelsPerMm = pixelDist / realMm;
   state.calibrating = false;
+
   elems.btnCalibrate.textContent = 'キャリブレーション開始';
   elems.btnCalibrate.className = 'btn btn-secondary';
   elems.calibStatus.textContent = `完了: ${state.calibPixelsPerMm.toFixed(2)} px/mm`;
   elems.resCalib.textContent = state.calibPixelsPerMm.toFixed(2);
+
   drawCalibGuide();
   log(`キャリブレーション完了: ${state.calibPixelsPerMm.toFixed(2)} px/mm (${realMm}mm = ${pixelDist.toFixed(1)}px)`, 'info');
 }
 
+// =====================================================================
+// 手動計測モード
+// =====================================================================
 elems.btnManualMeasure.addEventListener('click', toggleManualMode);
 
 function toggleManualMode() {
-  if (state.manualMode) { exitManualMode(); } else { enterManualMode(); }
+  if (state.manualMode) {
+    exitManualMode();
+  } else {
+    enterManualMode();
+  }
 }
 
 function enterManualMode() {
@@ -378,6 +475,7 @@ function exitManualModeQuiet() {
 function handleManualClick(pos) {
   state.manualPoints.push(pos);
   redrawManualPoints(null);
+
   if (state.manualPoints.length === 2) {
     calculateManualMeasurement();
   } else if (state.manualPoints.length > 2) {
@@ -390,7 +488,11 @@ function handleManualClick(pos) {
 function redrawManualPoints(cursor) {
   clearOverlay();
   const ctx = elems.overlayCanvas.getContext('2d');
-  state.manualPoints.forEach((p, i) => drawPoint(ctx, p, '#ffff00', 10, i === 0 ? '始点' : '終点'));
+
+  state.manualPoints.forEach((p, i) => {
+    drawPoint(ctx, p, '#ffff00', 10, i === 0 ? '始点' : '終点');
+  });
+
   if (state.manualPoints.length === 1 && cursor) {
     ctx.beginPath();
     ctx.strokeStyle = 'rgba(255,255,0,0.6)';
@@ -401,6 +503,7 @@ function redrawManualPoints(cursor) {
     ctx.stroke();
     ctx.setLineDash([]);
   }
+
   if (state.manualPoints.length === 2) {
     const [p1, p2] = state.manualPoints;
     ctx.beginPath();
@@ -419,24 +522,41 @@ function calculateManualMeasurement() {
   const dy = p2.y - p1.y;
   const pixelLen = Math.sqrt(dx * dx + dy * dy);
   const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+
   let lengthMm = null;
   if (state.calibPixelsPerMm) {
     lengthMm = pixelLen / state.calibPixelsPerMm;
     elems.resBladeLength.textContent = lengthMm.toFixed(1);
+    elems.unitBladeLength.textContent = 'mm';
     log(`手動計測: 刃渡り = ${lengthMm.toFixed(1)} mm (${pixelLen.toFixed(1)} px)`, 'detect');
   } else {
-    elems.resBladeLength.textContent = `${pixelLen.toFixed(0)} px`;
+    elems.resBladeLength.textContent = pixelLen.toFixed(0);
+    elems.unitBladeLength.textContent = 'px';
     log(`手動計測: ${pixelLen.toFixed(0)} px (キャリブレーション未設定)`, 'warn');
   }
+  // 手動計測は刃のみを2点指定するため全長欄はクリア
+  elems.resTotalLength.textContent = '--';
+  elems.unitTotalLength.textContent = 'mm';
+
   elems.resAngle.textContent = angle.toFixed(1);
   elems.resStatus.textContent = '手動計測完了';
-  if (lengthMm !== null) addHistory({ bladeLength: lengthMm, bladeWidth: null, angle });
+
+  if (lengthMm !== null) {
+    addHistory({ bladeLength: lengthMm, bladeWidth: null, angle });
+  }
 }
 
+// =====================================================================
+// 自動検出モード
+// =====================================================================
 elems.btnAutoDetect.addEventListener('click', toggleAutoDetect);
 
 function toggleAutoDetect() {
-  if (state.autoDetectRunning) { stopAutoDetect(); } else { startAutoDetect(); }
+  if (state.autoDetectRunning) {
+    stopAutoDetect();
+  } else {
+    startAutoDetect();
+  }
 }
 
 function startAutoDetect() {
@@ -454,104 +574,177 @@ function startAutoDetect() {
 
 function stopAutoDetect() {
   state.autoDetectRunning = false;
-  if (state.animFrameId) { cancelAnimationFrame(state.animFrameId); state.animFrameId = null; }
+  if (state.animFrameId) {
+    cancelAnimationFrame(state.animFrameId);
+    state.animFrameId = null;
+  }
   elems.btnAutoDetect.textContent = '自動検出';
   elems.btnAutoDetect.className = 'btn btn-primary';
 }
 
 let lastDetectTime = 0;
-const DETECT_INTERVAL_MS = 200;
+const DETECT_INTERVAL_MS = 200; // 約5fps で処理
 
 function autoDetectLoop() {
   if (!state.autoDetectRunning || !state.cameraActive) return;
+
   const now = performance.now();
-  if (now - lastDetectTime > DETECT_INTERVAL_MS) { lastDetectTime = now; detectKnifeFrame(); }
+  if (now - lastDetectTime > DETECT_INTERVAL_MS) {
+    lastDetectTime = now;
+    detectKnifeFrame();
+  }
+
   state.animFrameId = requestAnimationFrame(autoDetectLoop);
 }
 
+// =====================================================================
+// 撮影・解析ボタン
+// =====================================================================
 elems.btnCapture.addEventListener('click', () => {
-  if (!state.opencvReady) { log('OpenCV未準備のため自動解析不可。', 'warn'); return; }
+  if (!state.opencvReady) {
+    log('OpenCV未準備のため自動解析不可。', 'warn');
+    return;
+  }
   stopAutoDetect();
   detectKnifeFrame(true);
 });
 
+// =====================================================================
+// OpenCV 包丁検出コア
+// =====================================================================
 function detectKnifeFrame(saveResult = false) {
   if (!state.opencvReady || !state.cameraActive) return;
+
   const vw = elems.video.videoWidth;
   const vh = elems.video.videoHeight;
   if (!vw || !vh) return;
+
   let src, gray, blurred, edges, contours, hierarchy, result;
+
   try {
     const tmpCanvas = document.createElement('canvas');
     tmpCanvas.width = vw;
     tmpCanvas.height = vh;
     tmpCanvas.getContext('2d').drawImage(elems.video, 0, 0, vw, vh);
+
     src = cv.imread(tmpCanvas);
     gray = new cv.Mat();
     blurred = new cv.Mat();
     edges = new cv.Mat();
     contours = new cv.MatVector();
     hierarchy = new cv.Mat();
+
     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
     cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
     cv.Canny(blurred, edges, state.params.cannyLow, state.params.cannyHigh);
+
     const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(3, 3));
     cv.dilate(edges, edges, kernel);
     kernel.delete();
+
     cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
     result = new cv.Mat();
-    if (state.params.showEdges) { cv.cvtColor(edges, result, cv.COLOR_GRAY2RGBA); } else { src.copyTo(result); }
-    let bestContour = null, bestScore = 0, bestRect = null;
+    if (state.params.showEdges) {
+      cv.cvtColor(edges, result, cv.COLOR_GRAY2RGBA);
+    } else {
+      src.copyTo(result);
+    }
+
+    // 最大スコアの細長い輪郭を包丁候補として選択
+    let bestContour = null;
+    let bestScore = 0;
+    let bestRect = null;
+
     for (let i = 0; i < contours.size(); i++) {
       const cnt = contours.get(i);
       const area = cv.contourArea(cnt);
       if (area < state.params.minArea) { cnt.delete(); continue; }
+
       const rect = cv.minAreaRect(cnt);
       const w = Math.max(rect.size.width, rect.size.height);
       const h = Math.min(rect.size.width, rect.size.height);
       if (h < 1) { cnt.delete(); continue; }
+
       const aspect = w / h;
       if (aspect < 2.5 || aspect > 25) { cnt.delete(); continue; }
+
       const score = area * Math.min(aspect, 15);
       if (score > bestScore) {
         bestScore = score;
         if (bestContour) bestContour.delete();
         bestContour = cnt;
         bestRect = { rect, area, aspect, w, h };
-      } else { cnt.delete(); }
+      } else {
+        cnt.delete();
+      }
     }
-    clearOverlay();
+
     const overlayCtx = elems.overlayCanvas.getContext('2d');
+    clearOverlay();
+
     if (bestContour && bestRect) {
-      if (state.params.showContours) { const pts = cv.RotatedRect.points(bestRect.rect); drawRotatedRect(overlayCtx, pts, '#00ff88', 2); }
-      const bladeLengthPx = bestRect.w;
-      const bladeWidthPx = bestRect.h;
-      const angleRaw = bestRect.rect.angle;
-      let bladeLengthMm = null, bladeWidthMm = null;
+      if (state.params.showContours) {
+        const pts = cv.RotatedRect.points(bestRect.rect);
+        drawRotatedRect(overlayCtx, pts, '#00ff88', 2);
+      }
+
+      const totalLengthPx = bestRect.w;   // 刃＋柄の全長
+      const bladeWidthPx  = bestRect.h;
+      const angleRaw      = bestRect.rect.angle;
+
+      // 幅プロファイル解析で刃部分のみの長さを推定
+      const bladeOnlyPx = estimateBladeLength(bestContour, bestRect.rect) ?? totalLengthPx;
+
+      let bladeOnlyMm   = null;
+      let totalLengthMm = null;
+      let bladeWidthMm  = null;
       if (state.calibPixelsPerMm) {
-        bladeLengthMm = bladeLengthPx / state.calibPixelsPerMm;
-        bladeWidthMm = bladeWidthPx / state.calibPixelsPerMm;
+        bladeOnlyMm   = bladeOnlyPx   / state.calibPixelsPerMm;
+        totalLengthMm = totalLengthPx / state.calibPixelsPerMm;
+        bladeWidthMm  = bladeWidthPx  / state.calibPixelsPerMm;
       }
+
       const bbox = cv.boundingRect(bestContour);
-      updateResults({ status: '包丁検出', bladeLengthPx, bladeLengthMm, bladeWidthPx, bladeWidthMm, bbox, angle: angleRaw });
+
+      updateResults({
+        status: '包丁検出',
+        bladeOnlyPx,   bladeOnlyMm,
+        totalLengthPx, totalLengthMm,
+        bladeWidthPx,  bladeWidthMm,
+        bbox, angle: angleRaw,
+      });
+
       if (saveResult) {
-        addHistory({ bladeLength: bladeLengthMm ?? bladeLengthPx, bladeWidth: bladeWidthMm ?? bladeWidthPx, angle: angleRaw });
-        log(`撮影解析: 刃渡り ${bladeLengthMm ? bladeLengthMm.toFixed(1) + ' mm' : bladeLengthPx.toFixed(0) + ' px'}`, 'detect');
+        addHistory({
+          bladeLength: bladeOnlyMm ?? bladeOnlyPx,
+          bladeWidth:  bladeWidthMm ?? bladeWidthPx,
+          angle: angleRaw,
+        });
+        log(`撮影解析: 刃渡り ${bladeOnlyMm ? bladeOnlyMm.toFixed(1) + ' mm' : bladeOnlyPx.toFixed(0) + ' px'} / 全長 ${totalLengthMm ? totalLengthMm.toFixed(1) + ' mm' : totalLengthPx.toFixed(0) + ' px'}`, 'detect');
       }
+
       bestContour.delete();
     } else {
       updateStatus('包丁未検出');
       if (saveResult) log('包丁を検出できませんでした。パラメータを調整してください。', 'warn');
     }
+
     cv.imshow(elems.processedCanvas, result);
     elems.btnSaveImage.disabled = false;
+
   } catch (err) {
     log(`検出エラー: ${err.message || err}`, 'error');
   } finally {
-    [src, gray, blurred, edges, contours, hierarchy, result].forEach(m => { try { if (m) m.delete(); } catch (_) {} });
+    [src, gray, blurred, edges, contours, hierarchy, result].forEach(m => {
+      try { if (m) m.delete(); } catch (_) {}
+    });
   }
 }
 
+// =====================================================================
+// 描画ヘルパー
+// =====================================================================
 function drawPoint(ctx, p, color, r, label) {
   ctx.beginPath();
   ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
@@ -582,25 +775,136 @@ function clearOverlay() {
   ctx.clearRect(0, 0, elems.overlayCanvas.width, elems.overlayCanvas.height);
 }
 
-function updateResults({ status, bladeLengthPx, bladeLengthMm, bladeWidthPx, bladeWidthMm, bbox, angle }) {
-  elems.resStatus.textContent = status;
-  elems.resBladeLength.textContent = bladeLengthMm !== null && bladeLengthMm !== undefined ? bladeLengthMm.toFixed(1) : `${bladeLengthPx.toFixed(0)} px`;
-  elems.resBladeWidth.textContent = bladeWidthMm !== null && bladeWidthMm !== undefined ? bladeWidthMm.toFixed(1) : `${bladeWidthPx.toFixed(0)} px`;
-  if (bbox && state.calibPixelsPerMm) {
-    elems.resBbox.textContent = `${(bbox.width / state.calibPixelsPerMm).toFixed(1)} × ${(bbox.height / state.calibPixelsPerMm).toFixed(1)}`;
-  } else if (bbox) {
-    elems.resBbox.textContent = `${bbox.width} × ${bbox.height} px`;
+// =====================================================================
+// 刃部分のみ長さ推定（幅プロファイル解析）
+// =====================================================================
+function estimateBladeLength(contour, rect) {
+  const angle = rect.angle;
+  const cx = rect.center.x;
+  const cy = rect.center.y;
+  const rad = angle * Math.PI / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+
+  // 輪郭点群を回転して長軸を水平に揃える
+  const pts = [];
+  for (let i = 0; i < contour.rows; i++) {
+    const px = contour.data32S[i * 2];
+    const py = contour.data32S[i * 2 + 1];
+    pts.push({
+      x:  cos * (px - cx) + sin * (py - cy),
+      y: -sin * (px - cx) + cos * (py - cy),
+    });
   }
+
+  const minX = Math.min(...pts.map(p => p.x));
+  const maxX = Math.max(...pts.map(p => p.x));
+  const range = maxX - minX;
+  if (range < 1) return null;
+
+  // 50ビンの幅プロファイルを作成
+  const BINS = 50;
+  const binSize = range / BINS;
+  const minY = new Array(BINS).fill(Infinity);
+  const maxY = new Array(BINS).fill(-Infinity);
+  pts.forEach(p => {
+    const b = Math.min(Math.floor((p.x - minX) / binSize), BINS - 1);
+    if (p.y < minY[b]) minY[b] = p.y;
+    if (p.y > maxY[b]) maxY[b] = p.y;
+  });
+  const widths = minY.map((mn, i) => mn === Infinity ? 0 : maxY[i] - mn);
+
+  // 移動平均スムージング（窓幅3）
+  const smoothed = widths.map((_, i) => {
+    const s = Math.max(0, i - 1);
+    const e = Math.min(BINS - 1, i + 1);
+    const vals = widths.slice(s, e + 1).filter(v => v > 0);
+    return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+  });
+
+  const maxWidth = Math.max(...smoothed);
+  if (maxWidth < 1) return null;
+
+  // 幅が最大幅の60%を超える箇所を「柄」とみなす閾値
+  const threshold = maxWidth * 0.60;
+
+  // 両端の平均幅を比較して刃先側（幅が小さい端）を特定
+  const leftAvg  = smoothed.slice(0, 5).reduce((a, b) => a + b, 0) / 5;
+  const rightAvg = smoothed.slice(-5).reduce((a, b) => a + b, 0) / 5;
+  const tipSide  = leftAvg <= rightAvg ? 'left' : 'right';
+
+  // 刃先から柄に向かって走査し、閾値を超えた点を刃元（境界）とする
+  let junctionBin;
+  if (tipSide === 'left') {
+    junctionBin = smoothed.findIndex((w, i) => i > 2 && w > threshold);
+    if (junctionBin < 0) junctionBin = BINS - 1;
+  } else {
+    const rev = [...smoothed].reverse();
+    const idx  = rev.findIndex((w, i) => i > 2 && w > threshold);
+    junctionBin = idx >= 0 ? BINS - 1 - idx : 0;
+  }
+
+  const tipBin = tipSide === 'left' ? 0 : BINS - 1;
+  return Math.abs(junctionBin - tipBin) * binSize;
+}
+
+// =====================================================================
+// 結果表示
+// =====================================================================
+function setVal(valElem, unitElem, mm, px, unitLabel = 'mm') {
+  if (mm !== null && mm !== undefined) {
+    valElem.textContent = mm.toFixed(1);
+    unitElem.textContent = unitLabel;
+  } else {
+    valElem.textContent = px !== undefined ? px.toFixed(0) : '--';
+    unitElem.textContent = 'px';
+  }
+}
+
+function updateResults({ status, bladeOnlyPx, bladeOnlyMm, totalLengthPx, totalLengthMm,
+                         bladeWidthPx, bladeWidthMm, bbox, angle }) {
+  const calib = state.calibPixelsPerMm;
+  elems.resStatus.textContent = calib ? status : `${status}（キャリブレーション未設定・px表示）`;
+
+  setVal(elems.resBladeLength,  elems.unitBladeLength,  bladeOnlyMm,   bladeOnlyPx);
+  setVal(elems.resTotalLength,  elems.unitTotalLength,  totalLengthMm, totalLengthPx);
+  setVal(elems.resBladeWidth,   elems.unitBladeWidth,   bladeWidthMm,  bladeWidthPx);
+
+  if (bbox && calib) {
+    elems.resBbox.textContent = `${(bbox.width / calib).toFixed(1)} × ${(bbox.height / calib).toFixed(1)}`;
+    elems.unitBbox.textContent = 'mm';
+  } else if (bbox) {
+    elems.resBbox.textContent = `${bbox.width} × ${bbox.height}`;
+    elems.unitBbox.textContent = 'px';
+  }
+
   elems.resAngle.textContent = angle !== undefined ? angle.toFixed(1) : '--';
 }
 
-function updateStatus(text) { elems.resStatus.textContent = text; }
+function updateStatus(text) {
+  elems.resStatus.textContent = text;
+}
 
+// =====================================================================
+// 履歴管理
+// =====================================================================
 function addHistory({ bladeLength, bladeWidth, angle }) {
-  const entry = { bladeLength, bladeWidth, angle, time: new Date().toLocaleTimeString('ja-JP') };
+  const entry = {
+    bladeLength,
+    bladeWidth,
+    angle,
+    time: new Date().toLocaleTimeString('ja-JP'),
+  };
   state.history.push(entry);
+
   const tr = document.createElement('tr');
-  tr.innerHTML = `<td>${state.history.length}</td><td>${bladeLength !== null ? bladeLength.toFixed(1) : '--'}</td><td>${bladeWidth !== null ? bladeWidth.toFixed(1) : '--'}</td><td>${angle !== null ? angle.toFixed(1) : '--'}</td><td>${entry.time}</td>`;
+  tr.innerHTML = `
+    <td>${state.history.length}</td>
+    <td>${bladeLength !== null ? bladeLength.toFixed(1) : '--'}</td>
+    <td>${bladeWidth !== null ? bladeWidth.toFixed(1) : '--'}</td>
+    <td>${angle !== null ? angle.toFixed(1) : '--'}</td>
+    <td>${entry.time}</td>
+  `;
   elems.historyBody.prepend(tr);
 }
 
@@ -610,10 +914,21 @@ elems.btnClearHistory.addEventListener('click', () => {
   log('履歴クリア', 'info');
 });
 
-elems.btnExportCsv.addEventListener('click', () => {
-  if (state.history.length === 0) { log('エクスポートするデータがありません', 'warn'); return; }
+elems.btnExportCsv.addEventListener('click', exportCsv);
+
+function exportCsv() {
+  if (state.history.length === 0) {
+    log('エクスポートするデータがありません', 'warn');
+    return;
+  }
   const header = ['#', '刃渡り(mm)', '刃幅(mm)', '角度(°)', '時刻'];
-  const rows = state.history.map((h, i) => [i + 1, h.bladeLength !== null ? h.bladeLength.toFixed(1) : '', h.bladeWidth !== null ? h.bladeWidth.toFixed(1) : '', h.angle !== null ? h.angle.toFixed(1) : '', h.time]);
+  const rows = state.history.map((h, i) => [
+    i + 1,
+    h.bladeLength !== null ? h.bladeLength.toFixed(1) : '',
+    h.bladeWidth !== null ? h.bladeWidth.toFixed(1) : '',
+    h.angle !== null ? h.angle.toFixed(1) : '',
+    h.time,
+  ]);
   const csv = [header, ...rows].map(r => r.join(',')).join('\n');
   const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -623,8 +938,11 @@ elems.btnExportCsv.addEventListener('click', () => {
   a.click();
   URL.revokeObjectURL(url);
   log('CSV出力完了', 'info');
-});
+}
 
+// =====================================================================
+// 画像保存
+// =====================================================================
 elems.btnSaveImage.addEventListener('click', () => {
   const link = document.createElement('a');
   link.download = `knife-${Date.now()}.png`;
@@ -633,6 +951,9 @@ elems.btnSaveImage.addEventListener('click', () => {
   log('処理済み画像を保存しました', 'info');
 });
 
+// =====================================================================
+// リセット
+// =====================================================================
 elems.btnReset.addEventListener('click', () => {
   stopAutoDetect();
   exitManualModeQuiet();
@@ -644,15 +965,30 @@ elems.btnReset.addEventListener('click', () => {
   elems.calibStatus.textContent = '';
   elems.resCalib.textContent = '未設定';
   elems.resBladeLength.textContent = '--';
+  elems.unitBladeLength.textContent = 'mm';
+  elems.resTotalLength.textContent = '--';
+  elems.unitTotalLength.textContent = 'mm';
   elems.resBladeWidth.textContent = '--';
+  elems.unitBladeWidth.textContent = 'mm';
   elems.resBbox.textContent = '--';
+  elems.unitBbox.textContent = 'mm';
   elems.resAngle.textContent = '--';
   elems.resStatus.textContent = '待機中';
-  elems.processedCanvas.getContext('2d').clearRect(0, 0, elems.processedCanvas.width, elems.processedCanvas.height);
+  elems.processedCanvas.getContext('2d').clearRect(
+    0, 0, elems.processedCanvas.width, elems.processedCanvas.height
+  );
   log('全設定をリセット', 'warn');
 });
 
-window.addEventListener('resize', () => { if (state.cameraActive) resizeOverlayCanvas(); });
+// =====================================================================
+// ウィンドウリサイズ対応
+// =====================================================================
+window.addEventListener('resize', () => {
+  if (state.cameraActive) resizeOverlayCanvas();
+});
 
+// =====================================================================
+// 起動ログ
+// =====================================================================
 log('アプリ起動完了。カメラ開始ボタンを押してください。', 'info');
 log('OpenCV.js を読み込み中...', 'info');
