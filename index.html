@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>包丁検出・計測ツール</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>包丁検出・刃渡り計測</h1>
+      <p class="subtitle">カメラで包丁の形状と刃渡りを計測します</p>
+    </header>
+
+    <div id="main-content">
+
+      <!-- カメラ映像エリア（常時表示） -->
+      <div id="display-area">
+        <div id="video-container">
+          <video id="video" autoplay playsinline muted></video>
+          <canvas id="overlay-canvas"></canvas>
+          <!-- カメラ前後切替ボタン（映像に重ねる） -->
+          <button id="btn-flip-camera" class="btn-overlay" disabled title="前面/背面カメラ切替">
+            ⇄ 切替
+          </button>
+          <div id="crosshair-h"></div>
+          <div id="crosshair-v"></div>
+        </div>
+
+        <div id="canvas-container">
+          <div class="canvas-label">処理済み画像</div>
+          <canvas id="processed-canvas"></canvas>
+        </div>
+      </div>
+
+      <!-- タブナビゲーション（モバイルのみ表示） -->
+      <div id="tab-nav">
+        <button class="tab-btn active" data-tab="control">操作</button>
+        <button class="tab-btn" data-tab="result">結果</button>
+        <button class="tab-btn" data-tab="history">履歴</button>
+      </div>
+
+      <!-- 操作タブ / 旧 control-panel -->
+      <div id="tab-control" class="tab-panel">
+
+        <div class="control-group">
+          <label>カメラ選択</label>
+          <select id="camera-select"></select>
+          <div class="btn-row">
+            <button id="btn-start-camera" class="btn btn-primary">カメラ開始</button>
+            <button id="btn-stop-camera" class="btn btn-danger" disabled>停止</button>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <label>キャリブレーション（実寸基準）</label>
+          <select id="ref-type">
+            <option value="credit-card">クレジットカード幅 (85mm)</option>
+            <option value="a4-short">A4用紙 短辺 (210mm)</option>
+            <option value="coin-500">500円硬貨 (26.5mm)</option>
+            <option value="custom">カスタム入力</option>
+          </select>
+          <div class="calibration-row">
+            <span>基準長さ:</span>
+            <input type="number" id="ref-length" value="85" min="1" max="500" step="0.1">
+            <span>mm</span>
+          </div>
+          <button id="btn-calibrate" class="btn btn-secondary" disabled>キャリブレーション開始</button>
+          <span id="calibration-status" class="status-text"></span>
+        </div>
+
+        <div class="control-group">
+          <label>検出モード</label>
+          <button id="btn-auto-detect" class="btn btn-primary" disabled>自動検出</button>
+          <button id="btn-manual-measure" class="btn btn-secondary" disabled>手動計測（2点タップ）</button>
+          <button id="btn-capture" class="btn btn-accent" disabled>撮影・解析</button>
+        </div>
+
+        <div class="control-group">
+          <label>画像処理パラメータ</label>
+          <div class="slider-row">
+            <span>エッジ(下):</span>
+            <input type="range" id="canny-low" min="10" max="200" value="50">
+            <span id="canny-low-val">50</span>
+          </div>
+          <div class="slider-row">
+            <span>エッジ(上):</span>
+            <input type="range" id="canny-high" min="50" max="400" value="150">
+            <span id="canny-high-val">150</span>
+          </div>
+          <div class="slider-row">
+            <span>最小面積:</span>
+            <input type="range" id="min-area" min="100" max="20000" value="2000" step="100">
+            <span id="min-area-val">2000</span>
+          </div>
+          <div class="checkbox-row">
+            <label class="check-label">
+              <input type="checkbox" id="show-edges" checked>エッジ表示
+            </label>
+            <label class="check-label">
+              <input type="checkbox" id="show-contours" checked>輪郭表示
+            </label>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="btn-row">
+            <button id="btn-save-image" class="btn btn-secondary" disabled>画像保存</button>
+            <button id="btn-reset" class="btn btn-secondary">リセット</button>
+          </div>
+        </div>
+
+      </div><!-- /#tab-control -->
+
+      <!-- 結果タブ -->
+      <div id="tab-result" class="tab-panel hidden">
+
+        <div class="panel-box">
+          <h2>計測結果</h2>
+          <div id="results">
+            <div class="result-item">
+              <span class="result-label">検出状態</span>
+              <span id="res-status" class="result-value">待機中</span>
+            </div>
+            <div class="result-item big">
+              <span class="result-label">刃渡り長さ</span>
+              <span id="res-blade-length" class="result-value highlight">--</span>
+              <span class="unit">mm</span>
+            </div>
+            <div class="result-item">
+              <span class="result-label">刃幅（最大）</span>
+              <span id="res-blade-width" class="result-value">--</span>
+              <span class="unit">mm</span>
+            </div>
+            <div class="result-item">
+              <span class="result-label">外形 幅×高さ</span>
+              <span id="res-bbox" class="result-value">--</span>
+              <span class="unit">mm</span>
+            </div>
+            <div class="result-item">
+              <span class="result-label">傾き角度</span>
+              <span id="res-angle" class="result-value">--</span>
+              <span class="unit">°</span>
+            </div>
+            <div class="result-item">
+              <span class="result-label">校正係数</span>
+              <span id="res-calib" class="result-value">未設定</span>
+              <span class="unit">px/mm</span>
+            </div>
+          </div>
+        </div>
+
+        <div id="log-area" class="panel-box">
+          <h3>ログ</h3>
+          <div id="log-output"></div>
+        </div>
+
+      </div><!-- /#tab-result -->
+
+      <!-- 履歴タブ -->
+      <div id="tab-history" class="tab-panel hidden">
+
+        <div id="measurement-history" class="panel-box">
+          <h3>計測履歴</h3>
+          <table id="history-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>刃渡り (mm)</th>
+                <th>刃幅 (mm)</th>
+                <th>角度 (°)</th>
+                <th>時刻</th>
+              </tr>
+            </thead>
+            <tbody id="history-body"></tbody>
+          </table>
+          <div class="btn-row">
+            <button id="btn-clear-history" class="btn btn-danger btn-sm">履歴クリア</button>
+            <button id="btn-export-csv" class="btn btn-secondary btn-sm">CSV出力</button>
+          </div>
+        </div>
+
+      </div><!-- /#tab-history -->
+
+    </div><!-- /#main-content -->
+  </div><!-- /#app -->
+
+  <!-- OpenCV.js (CDNから読み込み) -->
+  <script async src="https://docs.opencv.org/4.9.0/opencv.js" onload="onOpenCvReady()" onerror="onOpenCvError()"></script>
+  <script src="app.js"></script>
+</body>
+</html>
