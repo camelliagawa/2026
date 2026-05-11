@@ -512,6 +512,18 @@ select:focus, input:focus {
 .log-error  { color: #ff6b6b; }
 .log-detect { color: #87ceeb; }
 
+/* ======= OpenCV Status ======= */
+.opencv-status {
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 7px 10px;
+  border-radius: 6px;
+  text-align: center;
+}
+.opencv-loading { background: #162a45; color: #6090c0; }
+.opencv-ready   { background: #122a1a; color: #50c878; }
+.opencv-error   { background: #2a1212; color: #ff6b6b; }
+
 /* ======= Utilities ======= */
 .hidden {
   display: none !important;
