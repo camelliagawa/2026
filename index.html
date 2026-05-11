@@ -29,7 +29,7 @@
         </div>
 
         <div id="canvas-container">
-          <div class="canvas-label">処理済み画像</div>
+          <div class="canvas-label">撮影画像</div>
           <canvas id="processed-canvas"></canvas>
         </div>
       </div>
@@ -41,7 +41,7 @@
         <button class="tab-btn" data-tab="history">履歴</button>
       </div>
 
-      <!-- 操作タブ / 旧 control-panel -->
+      <!-- 操作タブ -->
       <div id="tab-control" class="tab-panel">
 
         <div class="control-group">
@@ -54,57 +54,70 @@
         </div>
 
         <div class="control-group">
-          <label>キャリブレーション（実寸基準）</label>
-          <select id="ref-type">
-            <option value="credit-card">クレジットカード幅 (85mm)</option>
-            <option value="a4-short">A4用紙 短辺 (210mm)</option>
-            <option value="coin-500">500円硬貨 (26.5mm)</option>
-            <option value="custom">カスタム入力</option>
-          </select>
-          <div class="calibration-row">
-            <span>基準長さ:</span>
-            <input type="number" id="ref-length" value="85" min="1" max="500" step="0.1">
-            <span>mm</span>
-          </div>
-          <button id="btn-calibrate" class="btn btn-secondary" disabled>キャリブレーション開始</button>
-          <button id="btn-auto-calib" class="btn btn-secondary" disabled>カード/コインで自動校正</button>
+          <label>計測</label>
+          <p class="hint-text">包丁とクレジットカード（または500円硬貨）を同じ画面に収めて撮影してください。カードを自動検出してスケールを校正し、刃渡りを計測します。</p>
+          <div id="opencv-status" class="opencv-status opencv-loading">OpenCV 読み込み中...</div>
+          <button id="btn-capture" class="btn btn-capture-main" disabled>📷 撮影して計測</button>
+          <div class="or-divider"><span>または</span></div>
+          <label id="file-input-label" class="btn btn-secondary btn-file">
+            🖼 画像ファイルを選択
+            <input type="file" id="file-input" accept="image/*">
+          </label>
           <span id="calibration-status" class="status-text"></span>
         </div>
 
-        <div class="control-group">
-          <label>検出モード</label>
-          <div id="opencv-status" class="opencv-status opencv-loading">OpenCV 読み込み中...</div>
-          <button id="btn-auto-detect" class="btn btn-primary" disabled>自動検出</button>
-          <button id="btn-manual-measure" class="btn btn-secondary" disabled>手動計測（2点タップ）</button>
-          <button id="btn-capture" class="btn btn-accent" disabled>撮影・解析</button>
-        </div>
+        <details id="advanced-settings" class="advanced-settings">
+          <summary class="advanced-summary">詳細設定（手動キャリブレーション・パラメータ）</summary>
 
-        <div class="control-group">
-          <label>画像処理パラメータ</label>
-          <div class="slider-row">
-            <span>エッジ(下):</span>
-            <input type="range" id="canny-low" min="10" max="200" value="50">
-            <span id="canny-low-val">50</span>
+          <div class="control-group">
+            <label>手動キャリブレーション</label>
+            <select id="ref-type">
+              <option value="credit-card">クレジットカード幅 (85mm)</option>
+              <option value="a4-short">A4用紙 短辺 (210mm)</option>
+              <option value="coin-500">500円硬貨 (26.5mm)</option>
+              <option value="custom">カスタム入力</option>
+            </select>
+            <div class="calibration-row">
+              <span>基準長さ:</span>
+              <input type="number" id="ref-length" value="85" min="1" max="500" step="0.1">
+              <span>mm</span>
+            </div>
+            <button id="btn-calibrate" class="btn btn-secondary" disabled>キャリブレーション開始（2点タップ）</button>
           </div>
-          <div class="slider-row">
-            <span>エッジ(上):</span>
-            <input type="range" id="canny-high" min="50" max="400" value="150">
-            <span id="canny-high-val">150</span>
+
+          <div class="control-group">
+            <label>手動計測</label>
+            <button id="btn-manual-measure" class="btn btn-secondary" disabled>手動計測モード（2点タップ）</button>
           </div>
-          <div class="slider-row">
-            <span>最小面積:</span>
-            <input type="range" id="min-area" min="100" max="20000" value="2000" step="100">
-            <span id="min-area-val">2000</span>
+
+          <div class="control-group">
+            <label>画像処理パラメータ</label>
+            <div class="slider-row">
+              <span>エッジ(下):</span>
+              <input type="range" id="canny-low" min="10" max="200" value="50">
+              <span id="canny-low-val">50</span>
+            </div>
+            <div class="slider-row">
+              <span>エッジ(上):</span>
+              <input type="range" id="canny-high" min="50" max="400" value="150">
+              <span id="canny-high-val">150</span>
+            </div>
+            <div class="slider-row">
+              <span>最小面積:</span>
+              <input type="range" id="min-area" min="100" max="20000" value="2000" step="100">
+              <span id="min-area-val">2000</span>
+            </div>
+            <div class="checkbox-row">
+              <label class="check-label">
+                <input type="checkbox" id="show-edges" checked>エッジ表示
+              </label>
+              <label class="check-label">
+                <input type="checkbox" id="show-contours" checked>輪郭表示
+              </label>
+            </div>
           </div>
-          <div class="checkbox-row">
-            <label class="check-label">
-              <input type="checkbox" id="show-edges" checked>エッジ表示
-            </label>
-            <label class="check-label">
-              <input type="checkbox" id="show-contours" checked>輪郭表示
-            </label>
-          </div>
-        </div>
+
+        </details>
 
         <div class="control-group">
           <div class="btn-row">

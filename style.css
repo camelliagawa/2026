@@ -531,6 +531,102 @@ select:focus, input:focus {
 .opencv-ready   { background: #122a1a; color: #50c878; }
 .opencv-error   { background: #2a1212; color: #ff6b6b; }
 
+/* ======= Hint text ======= */
+.hint-text {
+  font-size: 0.78rem;
+  color: #a0a0b0;
+  line-height: 1.55;
+  padding: 6px 2px;
+}
+
+/* ======= Main Capture Button ======= */
+.btn-capture-main {
+  background: #e94560;
+  color: #fff;
+  font-size: 1.05rem;
+  font-weight: 700;
+  padding: 16px;
+  min-height: 54px;
+  border-radius: 10px;
+  letter-spacing: 0.03em;
+  box-shadow: 0 4px 16px rgba(233, 69, 96, 0.35);
+}
+
+.btn-capture-main:hover:not(:disabled) {
+  background: #c73250;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(233, 69, 96, 0.5);
+}
+
+/* ======= OR divider ======= */
+.or-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #a0a0b0;
+  font-size: 0.78rem;
+  margin: 2px 0;
+}
+.or-divider::before,
+.or-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #e9456033;
+}
+
+/* ======= File input button ======= */
+.btn-file {
+  display: block;
+  text-align: center;
+  cursor: pointer;
+}
+
+.btn-file input[type="file"] {
+  display: none;
+}
+
+/* ======= Advanced Settings (details/summary) ======= */
+.advanced-settings {
+  background: #0f3460;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.advanced-summary {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #a0a0b0;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 14px;
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.advanced-summary::-webkit-details-marker { display: none; }
+
+.advanced-summary::before {
+  content: '▶';
+  font-size: 0.6rem;
+  color: #e94560;
+  transition: transform 0.2s;
+}
+
+details[open] .advanced-summary::before {
+  transform: rotate(90deg);
+}
+
+.advanced-settings .control-group {
+  border-radius: 0;
+  border-top: 1px solid #e9456022;
+}
+
 /* ======= Detection Confirm Modal ======= */
 .detection-confirm {
   position: fixed;
