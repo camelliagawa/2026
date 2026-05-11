@@ -18,6 +18,7 @@ const state = {
   autoDetectRunning: false,
   autoCalibRunning: false,
   animFrameId: null,
+  pendingResult: null,
   params: {
     cannyLow: 50,
     cannyHigh: 150,
@@ -76,6 +77,10 @@ const elems = {
   btnClearHistory:    $('btn-clear-history'),
   btnExportCsv:       $('btn-export-csv'),
   logOutput:          $('log-output'),
+  detectionConfirm:   $('detection-confirm'),
+  btnConfirmOk:       $('btn-confirm-ok'),
+  btnConfirmRetry:    $('btn-confirm-retry'),
+  confirmSummary:     $('confirm-summary'),
 };
 
 // =====================================================================
@@ -961,12 +966,14 @@ function detectKnifeFrame(saveResult = false) {
       drawAnnotatedResult(tmpCanvas, rectPts, bladeResult, state.calibPixelsPerMm);
 
       if (saveResult) {
-        addHistory({
+        log(`撮影解析: 刃渡り ${bladeOnlyMm ? bladeOnlyMm.toFixed(1) + ' mm' : bladeOnlyPx.toFixed(0) + ' px'} / 全長 ${totalLengthMm ? totalLengthMm.toFixed(1) + ' mm' : totalLengthPx.toFixed(0) + ' px'}`, 'detect');
+        showDetectionConfirm({
           bladeLength: bladeOnlyMm ?? bladeOnlyPx,
           bladeWidth:  bladeWidthMm ?? bladeWidthPx,
           angle: angleRaw,
+          bladeOnlyMm,
+          bladeOnlyPx,
         });
-        log(`撮影解析: 刃渡り ${bladeOnlyMm ? bladeOnlyMm.toFixed(1) + ' mm' : bladeOnlyPx.toFixed(0) + ' px'} / 全長 ${totalLengthMm ? totalLengthMm.toFixed(1) + ' mm' : totalLengthPx.toFixed(0) + ' px'}`, 'detect');
       }
 
       bestContour.delete();
@@ -1180,10 +1187,10 @@ function estimateBladeLength(contour, rect) {
   // 幅が最大幅の60%を超える箇所を「柄」とみなす閾値
   const threshold = maxWidth * 0.60;
 
-  // 両端の平均幅を比較して刃先側（幅が小さい端）を特定
-  const leftAvg  = smoothed.slice(0, 5).reduce((a, b) => a + b, 0) / 5;
-  const rightAvg = smoothed.slice(-5).reduce((a, b) => a + b, 0) / 5;
-  const tipSide  = leftAvg <= rightAvg ? 'left' : 'right';
+  // 最大幅ビンの位置で刃先側を判定する
+  // 刃元（刃と柄の境界に近い刃側）が最も幅広いため、刃先は最大幅ビンの反対側にある
+  const maxBin = smoothed.indexOf(Math.max(...smoothed));
+  const tipSide = maxBin >= BINS / 2 ? 'left' : 'right';
 
   // 刃先から柄に向かって走査し、閾値を超えた点を刃元（境界）とする
   let junctionBin;
@@ -1249,6 +1256,43 @@ function updateResults({ status, bladeOnlyPx, bladeOnlyMm, totalLengthPx, totalL
 function updateStatus(text) {
   elems.resStatus.textContent = text;
 }
+
+// =====================================================================
+// 検出確認ダイアログ
+// =====================================================================
+function showDetectionConfirm(result) {
+  state.pendingResult = result;
+  const label = result.bladeOnlyMm != null
+    ? `刃渡り ${result.bladeOnlyMm.toFixed(1)} mm`
+    : `刃渡り ${result.bladeOnlyPx.toFixed(0)} px`;
+  elems.confirmSummary.textContent = label;
+  elems.detectionConfirm.classList.remove('hidden');
+}
+
+function hideDetectionConfirm() {
+  elems.detectionConfirm.classList.add('hidden');
+  state.pendingResult = null;
+}
+
+elems.btnConfirmOk.addEventListener('click', () => {
+  if (state.pendingResult) {
+    addHistory(state.pendingResult);
+    document.querySelector('.tab-btn[data-tab="result"]').click();
+  }
+  hideDetectionConfirm();
+  log('検出結果を確定しました', 'detect');
+});
+
+elems.btnConfirmRetry.addEventListener('click', () => {
+  hideDetectionConfirm();
+  elems.resultImageBox.classList.add('hidden');
+  updateStatus('待機中');
+  elems.resBladeLength.textContent = '--';
+  elems.unitBladeLength.textContent = 'mm';
+  elems.resTotalLength.textContent = '--';
+  elems.unitTotalLength.textContent = 'mm';
+  log('やり直し: 再度「撮影・解析」ボタンを押してください', 'warn');
+});
 
 // =====================================================================
 // 履歴管理

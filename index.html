@@ -198,6 +198,19 @@
     </div><!-- /#main-content -->
   </div><!-- /#app -->
 
+  <!-- 検出確認ダイアログ -->
+  <div id="detection-confirm" class="detection-confirm hidden">
+    <div class="detection-confirm-box">
+      <div class="detection-confirm-icon">✓</div>
+      <h2>包丁を検出しました</h2>
+      <p id="confirm-summary" class="confirm-summary"></p>
+      <div class="confirm-btn-row">
+        <button id="btn-confirm-retry" class="btn btn-danger">やり直す</button>
+        <button id="btn-confirm-ok" class="btn btn-ok">OK</button>
+      </div>
+    </div>
+  </div>
+
   <!-- OpenCV.js (CDNから読み込み) -->
   <script async src="https://docs.opencv.org/4.9.0/opencv.js" onload="onOpenCvReady()" onerror="onOpenCvError()"></script>
   <script src="app.js"></script>
