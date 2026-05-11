@@ -18,34 +18,44 @@ body {
 #app {
   max-width: 1600px;
   margin: 0 auto;
-  padding: 10px 12px 24px;
+  padding: 6px 10px 20px;
 }
 
 /* ======= Header ======= */
 header {
   text-align: center;
-  padding: 12px 0 14px;
+  padding: 8px 0 10px;
   border-bottom: 2px solid #16213e;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 
 header h1 {
-  font-size: 1.4rem;
+  font-size: 1.2rem;
   color: #e94560;
   text-shadow: 0 0 10px rgba(233, 69, 96, 0.4);
 }
 
 header .subtitle {
   color: #a0a0b0;
-  margin-top: 4px;
-  font-size: 0.82rem;
+  margin-top: 3px;
+  font-size: 0.76rem;
 }
 
 /* ======= Main Layout (Mobile First) ======= */
 #main-content {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
+}
+
+/* ======= Action Bar (撮影ボタン・ファイル選択) ======= */
+#action-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #0f3460;
+  border-radius: 10px;
+  padding: 12px;
 }
 
 /* ======= Display Area ======= */
@@ -61,8 +71,8 @@ header .subtitle {
   border-radius: 10px;
   overflow: hidden;
   border: 2px solid #0f3460;
-  /* 縦画面で画面の上半分を活用 */
-  max-height: 55vh;
+  /* モバイル: 画面の上部30%をカメラに割り当て、残りをアクションバーに */
+  max-height: 30vh;
   aspect-ratio: 4/3;
 }
 
@@ -123,6 +133,7 @@ header .subtitle {
 }
 
 #canvas-container {
+  display: none;  /* モバイルでは非表示（デスクトップで表示） */
   background: #16213e;
   border-radius: 8px;
   padding: 6px 8px;
@@ -531,6 +542,165 @@ select:focus, input:focus {
 .opencv-ready   { background: #122a1a; color: #50c878; }
 .opencv-error   { background: #2a1212; color: #ff6b6b; }
 
+/* ======= Hint text (モバイルで非表示) ======= */
+.hint-text {
+  display: none;
+}
+
+/* ======= Main Capture Button ======= */
+.btn-capture-main {
+  background: #e94560;
+  color: #fff;
+  font-size: 1.05rem;
+  font-weight: 700;
+  padding: 16px;
+  min-height: 54px;
+  border-radius: 10px;
+  letter-spacing: 0.03em;
+  box-shadow: 0 4px 16px rgba(233, 69, 96, 0.35);
+}
+
+.btn-capture-main:hover:not(:disabled) {
+  background: #c73250;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(233, 69, 96, 0.5);
+}
+
+/* ======= OR divider ======= */
+.or-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #a0a0b0;
+  font-size: 0.78rem;
+  margin: 2px 0;
+}
+.or-divider::before,
+.or-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #e9456033;
+}
+
+/* ======= File input button ======= */
+.btn-file {
+  display: block;
+  text-align: center;
+  cursor: pointer;
+}
+
+.btn-file input[type="file"] {
+  display: none;
+}
+
+/* ======= Advanced Settings (details/summary) ======= */
+.advanced-settings {
+  background: #0f3460;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.advanced-summary {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #a0a0b0;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 14px;
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.advanced-summary::-webkit-details-marker { display: none; }
+
+.advanced-summary::before {
+  content: '▶';
+  font-size: 0.6rem;
+  color: #e94560;
+  transition: transform 0.2s;
+}
+
+details[open] .advanced-summary::before {
+  transform: rotate(90deg);
+}
+
+.advanced-settings .control-group {
+  border-radius: 0;
+  border-top: 1px solid #e9456022;
+}
+
+/* ======= Detection Confirm Modal ======= */
+.detection-confirm {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.detection-confirm-box {
+  background: #16213e;
+  border: 2px solid #00e87a;
+  border-radius: 16px;
+  padding: 28px 32px;
+  text-align: center;
+  min-width: 280px;
+  max-width: 90vw;
+  box-shadow: 0 0 40px rgba(0, 232, 122, 0.3);
+}
+
+.detection-confirm-icon {
+  font-size: 2.8rem;
+  color: #00e87a;
+  margin-bottom: 8px;
+  text-shadow: 0 0 20px rgba(0, 232, 122, 0.6);
+}
+
+.detection-confirm-box h2 {
+  color: #e0e0e0;
+  font-size: 1.15rem;
+  margin-bottom: 14px;
+}
+
+.confirm-summary {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #00e87a;
+  font-family: 'Courier New', monospace;
+  margin-bottom: 24px;
+  text-shadow: 0 0 10px rgba(0, 232, 122, 0.4);
+}
+
+.confirm-btn-row {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+}
+
+.confirm-btn-row .btn {
+  min-width: 110px;
+}
+
+.btn-ok {
+  background: #006e35;
+  color: #fff;
+  border: 1px solid #00e87a55;
+}
+
+.btn-ok:hover:not(:disabled) {
+  background: #00a04e;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 200, 100, 0.4);
+}
+
 /* ======= Utilities ======= */
 .hidden {
   display: none !important;
@@ -546,25 +716,44 @@ select:focus, input:focus {
     font-size: 1.8rem;
   }
 
+  header .subtitle {
+    font-size: 0.82rem;
+  }
+
   #main-content {
     display: grid;
     grid-template-columns: 280px 1fr 300px;
-    grid-template-rows: auto auto;
+    grid-template-rows: auto 1fr;
     grid-template-areas:
-      "control display result"
+      "action  display result"
       "control display history";
     gap: 16px;
     align-items: start;
   }
 
-  #display-area  { grid-area: display; }
-  #tab-control   { grid-area: control; }
-  #tab-result    { grid-area: result;  display: flex !important; }
-  #tab-history   { grid-area: history; display: flex !important; }
+  #action-bar   { grid-area: action;   gap: 10px; padding: 14px; }
+  #display-area { grid-area: display; }
+  #tab-control  { grid-area: control; }
+  #tab-result   { grid-area: result;   display: flex !important; }
+  #tab-history  { grid-area: history;  display: flex !important; }
 
   /* デスクトップではタブナビ非表示 */
   #tab-nav {
     display: none;
+  }
+
+  /* デスクトップでは撮影画像プレビューを表示 */
+  #canvas-container {
+    display: block;
+  }
+
+  /* デスクトップではヒントテキストを表示 */
+  .hint-text {
+    display: block;
+    font-size: 0.78rem;
+    color: #a0a0b0;
+    line-height: 1.55;
+    padding: 2px 0;
   }
 
   #video-container {

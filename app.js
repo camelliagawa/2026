@@ -18,6 +18,7 @@ const state = {
   autoDetectRunning: false,
   autoCalibRunning: false,
   animFrameId: null,
+  pendingResult: null,
   params: {
     cannyLow: 50,
     cannyHigh: 150,
@@ -41,9 +42,9 @@ const elems = {
   refType:            $('ref-type'),
   btnCalibrate:       $('btn-calibrate'),
   calibStatus:        $('calibration-status'),
-  btnAutoDetect:      $('btn-auto-detect'),
   btnManualMeasure:   $('btn-manual-measure'),
   btnCapture:         $('btn-capture'),
+  fileInput:          $('file-input'),
   cannyLow:           $('canny-low'),
   cannyLowVal:        $('canny-low-val'),
   cannyHigh:          $('canny-high'),
@@ -69,13 +70,16 @@ const elems = {
   resAngle:           $('res-angle'),
   resCalib:           $('res-calib'),
   opencvStatus:       $('opencv-status'),
-  btnAutoCalib:       $('btn-auto-calib'),
   annotatedCanvas:    $('annotated-canvas'),
   resultImageBox:     $('result-image-box'),
   historyBody:        $('history-body'),
   btnClearHistory:    $('btn-clear-history'),
   btnExportCsv:       $('btn-export-csv'),
   logOutput:          $('log-output'),
+  detectionConfirm:   $('detection-confirm'),
+  btnConfirmOk:       $('btn-confirm-ok'),
+  btnConfirmRetry:    $('btn-confirm-retry'),
+  confirmSummary:     $('confirm-summary'),
 };
 
 // =====================================================================
@@ -101,9 +105,7 @@ window.onOpenCvReady = () => {
   elems.opencvStatus.textContent = 'OpenCV 準備完了 ✓';
   elems.opencvStatus.className = 'opencv-status opencv-ready';
   if (state.cameraActive) {
-    elems.btnAutoDetect.disabled = false;
     elems.btnCapture.disabled = false;
-    elems.btnAutoCalib.disabled = false;
   }
   initCameraList();
 };
@@ -128,6 +130,13 @@ async function initCameraList() {
     const videoDevices = devices.filter(d => d.kind === 'videoinput');
 
     elems.cameraSelect.innerHTML = '';
+
+    // 先頭に「自動（背面カメラ優先）」オプションを追加
+    const autoOpt = document.createElement('option');
+    autoOpt.value = '';
+    autoOpt.textContent = '自動（背面カメラ）';
+    elems.cameraSelect.appendChild(autoOpt);
+
     videoDevices.forEach((d, i) => {
       const opt = document.createElement('option');
       opt.value = d.deviceId;
@@ -188,9 +197,7 @@ async function startCamera() {
     elems.btnFlipCamera.disabled = false;
     elems.btnCalibrate.disabled = false;
     elems.btnManualMeasure.disabled = false;
-    elems.btnAutoDetect.disabled = !state.opencvReady;
     elems.btnCapture.disabled = !state.opencvReady;
-    elems.btnAutoCalib.disabled = !state.opencvReady;
 
     const facing = state.facingMode === 'environment' ? '背面' : '前面';
     log(`カメラ開始: ${elems.video.videoWidth}x${elems.video.videoHeight} (${deviceId ? 'デバイス指定' : facing})`, 'info');
@@ -207,8 +214,6 @@ function stopCameraStream() {
 }
 
 function stopCamera() {
-  stopAutoDetect();
-  stopAutoCalib();
   stopCameraStream();
   elems.video.srcObject = null;
   state.cameraActive = false;
@@ -216,10 +221,8 @@ function stopCamera() {
   elems.btnStopCamera.disabled = true;
   elems.btnFlipCamera.disabled = true;
   elems.btnCalibrate.disabled = true;
-  elems.btnAutoDetect.disabled = true;
   elems.btnManualMeasure.disabled = true;
   elems.btnCapture.disabled = true;
-  elems.btnAutoCalib.disabled = true;
   clearOverlay();
   log('カメラ停止', 'info');
 }
@@ -457,86 +460,34 @@ function finishCalibration() {
 }
 
 // =====================================================================
-// 自動キャリブレーション（カード/コイン認識）
+// 撮影画像の一括解析（自動校正 + 刃渡り計測）
 // =====================================================================
-elems.btnAutoCalib.addEventListener('click', toggleAutoCalib);
-
-let autoCalibFrameId = null;
-let autoCalibConfirmCount = 0;
-let lastAutoCalibTime = 0;
-
-function toggleAutoCalib() {
-  if (state.autoCalibRunning) {
-    stopAutoCalib();
-  } else {
-    startAutoCalib();
+function analyzeImage(canvas) {
+  if (!state.opencvReady) {
+    log('OpenCV未準備のため解析できません', 'error');
+    return;
   }
-}
+  log('画像解析開始', 'info');
 
-function startAutoCalib() {
-  if (!state.opencvReady || !state.cameraActive) return;
-  stopAutoDetect();
-  exitManualModeQuiet();
-  cancelCalibration();
-  state.autoCalibRunning = true;
-  autoCalibConfirmCount = 0;
-  elems.btnAutoCalib.textContent = '自動校正中止';
-  elems.btnAutoCalib.className = 'btn btn-danger';
-  log('クレジットカードまたは500円硬貨をカメラに向けてください', 'info');
-  clearOverlay();
-  autoCalibLoop();
-}
+  // 撮影画像をプレビューに表示
+  elems.processedCanvas.width  = canvas.width;
+  elems.processedCanvas.height = canvas.height;
+  elems.processedCanvas.getContext('2d').drawImage(canvas, 0, 0);
 
-function stopAutoCalib() {
-  state.autoCalibRunning = false;
-  autoCalibConfirmCount = 0;
-  if (autoCalibFrameId) {
-    cancelAnimationFrame(autoCalibFrameId);
-    autoCalibFrameId = null;
+  // Step 1: クレジットカード/コインを検出してスケール自動校正
+  const calRef = detectReferenceObject(canvas);
+  if (calRef) {
+    state.calibPixelsPerMm = calRef.pixelsPerMm;
+    const typeName = calRef.type === 'card' ? 'クレジットカード (85.6mm)' : '500円硬貨 (26.5mm)';
+    elems.calibStatus.textContent = `自動校正完了: ${state.calibPixelsPerMm.toFixed(2)} px/mm`;
+    elems.resCalib.textContent     = state.calibPixelsPerMm.toFixed(2);
+    log(`自動キャリブレーション [${typeName}]: ${state.calibPixelsPerMm.toFixed(2)} px/mm`, 'info');
+  } else if (!state.calibPixelsPerMm) {
+    log('クレジットカード/コインが検出できませんでした。詳細設定から手動でキャリブレーションしてください。', 'warn');
   }
-  elems.btnAutoCalib.textContent = 'カード/コインで自動校正';
-  elems.btnAutoCalib.className = 'btn btn-secondary';
-}
 
-function autoCalibLoop() {
-  if (!state.autoCalibRunning || !state.cameraActive) return;
-  const now = performance.now();
-  if (now - lastAutoCalibTime > 300) {
-    lastAutoCalibTime = now;
-    runAutoCalibDetect();
-  }
-  autoCalibFrameId = requestAnimationFrame(autoCalibLoop);
-}
-
-function runAutoCalibDetect() {
-  const vw = elems.video.videoWidth;
-  const vh = elems.video.videoHeight;
-  if (!vw || !vh) return;
-
-  const tmpCanvas = document.createElement('canvas');
-  tmpCanvas.width = vw;
-  tmpCanvas.height = vh;
-  tmpCanvas.getContext('2d').drawImage(elems.video, 0, 0, vw, vh);
-
-  const found = detectReferenceObject(tmpCanvas);
-  clearOverlay();
-
-  if (found) {
-    autoCalibConfirmCount++;
-    drawCalibRefOverlay(elems.overlayCanvas.getContext('2d'), found);
-    if (autoCalibConfirmCount >= 3) {
-      applyAutoCalib(found);
-    }
-  } else {
-    autoCalibConfirmCount = 0;
-    const ctx = elems.overlayCanvas.getContext('2d');
-    ctx.font = 'bold 14px sans-serif';
-    ctx.textBaseline = 'bottom';
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.fillRect(4, elems.overlayCanvas.height - 28, 260, 22);
-    ctx.fillStyle = '#ffff00';
-    ctx.fillText('カード/コインを探しています...', 8, elems.overlayCanvas.height - 8);
-  }
+  // Step 2: 包丁検出・計測
+  detectKnifeOnCanvas(canvas, true);
 }
 
 function drawCalibRefOverlay(ctx, found) {
@@ -576,16 +527,6 @@ function drawCalibLabel(ctx, text, x, y) {
   ctx.fillRect(x - 3, y - 17, tw + 6, 19);
   ctx.fillStyle = '#ffff00';
   ctx.fillText(text, x, y);
-}
-
-function applyAutoCalib(found) {
-  stopAutoCalib();
-  state.calibPixelsPerMm = found.pixelsPerMm;
-  const typeName = found.type === 'card' ? 'クレジットカード (85.6mm)' : '500円硬貨 (26.5mm)';
-  elems.calibStatus.textContent = `自動校正完了: ${state.calibPixelsPerMm.toFixed(2)} px/mm`;
-  elems.resCalib.textContent = state.calibPixelsPerMm.toFixed(2);
-  drawCalibRefOverlay(elems.overlayCanvas.getContext('2d'), found);
-  log(`自動キャリブレーション完了 [${typeName}]: ${state.calibPixelsPerMm.toFixed(2)} px/mm`, 'info');
 }
 
 function detectReferenceObject(tmpCanvas) {
@@ -688,8 +629,6 @@ function toggleManualMode() {
 }
 
 function enterManualMode() {
-  stopAutoDetect();
-  stopAutoCalib();
   state.manualMode = true;
   state.manualPoints = [];
   state.calibrating = false;
@@ -788,88 +727,63 @@ function calculateManualMeasurement() {
 }
 
 // =====================================================================
-// 自動検出モード
-// =====================================================================
-elems.btnAutoDetect.addEventListener('click', toggleAutoDetect);
-
-function toggleAutoDetect() {
-  if (state.autoDetectRunning) {
-    stopAutoDetect();
-  } else {
-    startAutoDetect();
-  }
-}
-
-function startAutoDetect() {
-  if (!state.opencvReady) {
-    log('OpenCV未準備のため自動検出不可。手動計測を使用してください。', 'warn');
-    return;
-  }
-  exitManualModeQuiet();
-  stopAutoCalib();
-  state.autoDetectRunning = true;
-  elems.btnAutoDetect.textContent = '自動検出停止';
-  elems.btnAutoDetect.className = 'btn btn-danger';
-  log('自動検出開始', 'info');
-  autoDetectLoop();
-}
-
-function stopAutoDetect() {
-  state.autoDetectRunning = false;
-  if (state.animFrameId) {
-    cancelAnimationFrame(state.animFrameId);
-    state.animFrameId = null;
-  }
-  elems.btnAutoDetect.textContent = '自動検出';
-  elems.btnAutoDetect.className = 'btn btn-primary';
-}
-
-let lastDetectTime = 0;
-const DETECT_INTERVAL_MS = 200; // 約5fps で処理
-
-function autoDetectLoop() {
-  if (!state.autoDetectRunning || !state.cameraActive) return;
-
-  const now = performance.now();
-  if (now - lastDetectTime > DETECT_INTERVAL_MS) {
-    lastDetectTime = now;
-    detectKnifeFrame();
-  }
-
-  state.animFrameId = requestAnimationFrame(autoDetectLoop);
-}
-
-// =====================================================================
-// 撮影・解析ボタン
+// 撮影ボタン・ファイル入力
 // =====================================================================
 elems.btnCapture.addEventListener('click', () => {
   if (!state.opencvReady) {
-    log('OpenCV未準備のため自動解析不可。', 'warn');
+    log('OpenCV未準備のため解析不可', 'warn');
     return;
   }
-  stopAutoDetect();
-  detectKnifeFrame(true);
+  const vw = elems.video.videoWidth;
+  const vh = elems.video.videoHeight;
+  if (!vw || !vh) {
+    log('カメラ映像が取得できません', 'error');
+    return;
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = vw;
+  canvas.height = vh;
+  canvas.getContext('2d').drawImage(elems.video, 0, 0, vw, vh);
+  analyzeImage(canvas);
+});
+
+elems.fileInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  e.target.value = '';   // 同じファイルを再選択できるようにリセット
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width  = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    canvas.getContext('2d').drawImage(img, 0, 0);
+    URL.revokeObjectURL(url);
+    // ファイル読み込み時はカメラ不要なのでOpenCVだけ確認
+    if (!state.opencvReady) {
+      log('OpenCV未準備のため解析不可。少し待ってから再試行してください。', 'warn');
+      return;
+    }
+    log(`画像読み込み: ${img.naturalWidth}×${img.naturalHeight}`, 'info');
+    // オーバーレイキャンバスを画像サイズに合わせる
+    elems.overlayCanvas.width  = img.naturalWidth;
+    elems.overlayCanvas.height = img.naturalHeight;
+    analyzeImage(canvas);
+  };
+  img.onerror = () => log('画像の読み込みに失敗しました', 'error');
+  img.src = url;
 });
 
 // =====================================================================
 // OpenCV 包丁検出コア
 // =====================================================================
-function detectKnifeFrame(saveResult = false) {
-  if (!state.opencvReady || !state.cameraActive) return;
-
-  const vw = elems.video.videoWidth;
-  const vh = elems.video.videoHeight;
-  if (!vw || !vh) return;
+function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
+  if (!state.opencvReady) return;
 
   let src, gray, blurred, edges, contours, hierarchy, result;
 
   try {
-    const tmpCanvas = document.createElement('canvas');
-    tmpCanvas.width = vw;
-    tmpCanvas.height = vh;
-    tmpCanvas.getContext('2d').drawImage(elems.video, 0, 0, vw, vh);
-
-    src = cv.imread(tmpCanvas);
+    src = cv.imread(srcCanvas);
     gray = new cv.Mat();
     blurred = new cv.Mat();
     edges = new cv.Mat();
@@ -958,15 +872,17 @@ function detectKnifeFrame(saveResult = false) {
         bbox, angle: angleRaw,
       });
 
-      drawAnnotatedResult(tmpCanvas, rectPts, bladeResult, state.calibPixelsPerMm);
+      drawAnnotatedResult(srcCanvas, rectPts, bladeResult, state.calibPixelsPerMm);
 
       if (saveResult) {
-        addHistory({
+        log(`撮影解析: 刃渡り ${bladeOnlyMm ? bladeOnlyMm.toFixed(1) + ' mm' : bladeOnlyPx.toFixed(0) + ' px'} / 全長 ${totalLengthMm ? totalLengthMm.toFixed(1) + ' mm' : totalLengthPx.toFixed(0) + ' px'}`, 'detect');
+        showDetectionConfirm({
           bladeLength: bladeOnlyMm ?? bladeOnlyPx,
           bladeWidth:  bladeWidthMm ?? bladeWidthPx,
           angle: angleRaw,
+          bladeOnlyMm,
+          bladeOnlyPx,
         });
-        log(`撮影解析: 刃渡り ${bladeOnlyMm ? bladeOnlyMm.toFixed(1) + ' mm' : bladeOnlyPx.toFixed(0) + ' px'} / 全長 ${totalLengthMm ? totalLengthMm.toFixed(1) + ' mm' : totalLengthPx.toFixed(0) + ' px'}`, 'detect');
       }
 
       bestContour.delete();
@@ -975,7 +891,9 @@ function detectKnifeFrame(saveResult = false) {
       if (saveResult) log('包丁を検出できませんでした。パラメータを調整してください。', 'warn');
     }
 
-    cv.imshow(elems.processedCanvas, result);
+    if (state.params.showEdges) {
+      cv.imshow(elems.processedCanvas, result);
+    }
     elems.btnSaveImage.disabled = false;
 
   } catch (err) {
@@ -1180,10 +1098,10 @@ function estimateBladeLength(contour, rect) {
   // 幅が最大幅の60%を超える箇所を「柄」とみなす閾値
   const threshold = maxWidth * 0.60;
 
-  // 両端の平均幅を比較して刃先側（幅が小さい端）を特定
-  const leftAvg  = smoothed.slice(0, 5).reduce((a, b) => a + b, 0) / 5;
-  const rightAvg = smoothed.slice(-5).reduce((a, b) => a + b, 0) / 5;
-  const tipSide  = leftAvg <= rightAvg ? 'left' : 'right';
+  // 最大幅ビンの位置で刃先側を判定する
+  // 刃元（刃と柄の境界に近い刃側）が最も幅広いため、刃先は最大幅ビンの反対側にある
+  const maxBin = smoothed.indexOf(Math.max(...smoothed));
+  const tipSide = maxBin >= BINS / 2 ? 'left' : 'right';
 
   // 刃先から柄に向かって走査し、閾値を超えた点を刃元（境界）とする
   let junctionBin;
@@ -1249,6 +1167,43 @@ function updateResults({ status, bladeOnlyPx, bladeOnlyMm, totalLengthPx, totalL
 function updateStatus(text) {
   elems.resStatus.textContent = text;
 }
+
+// =====================================================================
+// 検出確認ダイアログ
+// =====================================================================
+function showDetectionConfirm(result) {
+  state.pendingResult = result;
+  const label = result.bladeOnlyMm != null
+    ? `刃渡り ${result.bladeOnlyMm.toFixed(1)} mm`
+    : `刃渡り ${result.bladeOnlyPx.toFixed(0)} px`;
+  elems.confirmSummary.textContent = label;
+  elems.detectionConfirm.classList.remove('hidden');
+}
+
+function hideDetectionConfirm() {
+  elems.detectionConfirm.classList.add('hidden');
+  state.pendingResult = null;
+}
+
+elems.btnConfirmOk.addEventListener('click', () => {
+  if (state.pendingResult) {
+    addHistory(state.pendingResult);
+    document.querySelector('.tab-btn[data-tab="result"]').click();
+  }
+  hideDetectionConfirm();
+  log('検出結果を確定しました', 'detect');
+});
+
+elems.btnConfirmRetry.addEventListener('click', () => {
+  hideDetectionConfirm();
+  elems.resultImageBox.classList.add('hidden');
+  updateStatus('待機中');
+  elems.resBladeLength.textContent = '--';
+  elems.unitBladeLength.textContent = 'mm';
+  elems.resTotalLength.textContent = '--';
+  elems.unitTotalLength.textContent = 'mm';
+  log('やり直し: 再度「撮影・解析」ボタンを押してください', 'warn');
+});
 
 // =====================================================================
 // 履歴管理
@@ -1320,8 +1275,6 @@ elems.btnSaveImage.addEventListener('click', () => {
 // リセット
 // =====================================================================
 elems.btnReset.addEventListener('click', () => {
-  stopAutoDetect();
-  stopAutoCalib();
   exitManualModeQuiet();
   cancelCalibration();
   clearOverlay();
