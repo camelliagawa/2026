@@ -15,12 +15,11 @@
 
     <div id="main-content">
 
-      <!-- カメラ映像エリア（常時表示） -->
+      <!-- カメラ映像エリア -->
       <div id="display-area">
         <div id="video-container">
           <video id="video" autoplay playsinline muted></video>
           <canvas id="overlay-canvas"></canvas>
-          <!-- カメラ前後切替ボタン（映像に重ねる） -->
           <button id="btn-flip-camera" class="btn-overlay" disabled title="前面/背面カメラ切替">
             ⇄ 切替
           </button>
@@ -34,6 +33,19 @@
         </div>
       </div>
 
+      <!-- 撮影アクションバー（モバイル：常時表示 / デスクトップ：左列上段） -->
+      <div id="action-bar">
+        <div id="opencv-status" class="opencv-status opencv-loading">OpenCV 読み込み中...</div>
+        <p class="hint-text">包丁とクレジットカード（または500円硬貨）を同じ画面に収めて撮影してください。カードを自動検出してスケールを校正し、刃渡りを計測します。</p>
+        <button id="btn-capture" class="btn btn-capture-main" disabled>📷 撮影して計測</button>
+        <div class="or-divider"><span>または</span></div>
+        <label id="file-input-label" class="btn btn-secondary btn-file">
+          🖼 画像ファイルを選択
+          <input type="file" id="file-input" accept="image/*">
+        </label>
+        <span id="calibration-status" class="status-text"></span>
+      </div>
+
       <!-- タブナビゲーション（モバイルのみ表示） -->
       <div id="tab-nav">
         <button class="tab-btn active" data-tab="control">操作</button>
@@ -41,29 +53,16 @@
         <button class="tab-btn" data-tab="history">履歴</button>
       </div>
 
-      <!-- 操作タブ -->
+      <!-- 操作タブ（カメラ設定・詳細） -->
       <div id="tab-control" class="tab-panel">
 
         <div class="control-group">
-          <label>カメラ選択</label>
+          <label>カメラ</label>
           <select id="camera-select"></select>
           <div class="btn-row">
             <button id="btn-start-camera" class="btn btn-primary">カメラ開始</button>
             <button id="btn-stop-camera" class="btn btn-danger" disabled>停止</button>
           </div>
-        </div>
-
-        <div class="control-group">
-          <label>計測</label>
-          <p class="hint-text">包丁とクレジットカード（または500円硬貨）を同じ画面に収めて撮影してください。カードを自動検出してスケールを校正し、刃渡りを計測します。</p>
-          <div id="opencv-status" class="opencv-status opencv-loading">OpenCV 読み込み中...</div>
-          <button id="btn-capture" class="btn btn-capture-main" disabled>📷 撮影して計測</button>
-          <div class="or-divider"><span>または</span></div>
-          <label id="file-input-label" class="btn btn-secondary btn-file">
-            🖼 画像ファイルを選択
-            <input type="file" id="file-input" accept="image/*">
-          </label>
-          <span id="calibration-status" class="status-text"></span>
         </div>
 
         <details id="advanced-settings" class="advanced-settings">

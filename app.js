@@ -130,6 +130,13 @@ async function initCameraList() {
     const videoDevices = devices.filter(d => d.kind === 'videoinput');
 
     elems.cameraSelect.innerHTML = '';
+
+    // 先頭に「自動（背面カメラ優先）」オプションを追加
+    const autoOpt = document.createElement('option');
+    autoOpt.value = '';
+    autoOpt.textContent = '自動（背面カメラ）';
+    elems.cameraSelect.appendChild(autoOpt);
+
     videoDevices.forEach((d, i) => {
       const opt = document.createElement('option');
       opt.value = d.deviceId;
