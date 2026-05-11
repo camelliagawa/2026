@@ -16,6 +16,7 @@ const state = {
   manualPoints: [],              // 手動計測点 [{x,y}, ...]
   history: [],
   autoDetectRunning: false,
+  autoCalibRunning: false,
   animFrameId: null,
   params: {
     cannyLow: 50,
@@ -68,6 +69,7 @@ const elems = {
   resAngle:           $('res-angle'),
   resCalib:           $('res-calib'),
   opencvStatus:       $('opencv-status'),
+  btnAutoCalib:       $('btn-auto-calib'),
   annotatedCanvas:    $('annotated-canvas'),
   resultImageBox:     $('result-image-box'),
   historyBody:        $('history-body'),
@@ -101,6 +103,7 @@ window.onOpenCvReady = () => {
   if (state.cameraActive) {
     elems.btnAutoDetect.disabled = false;
     elems.btnCapture.disabled = false;
+    elems.btnAutoCalib.disabled = false;
   }
   initCameraList();
 };
@@ -187,6 +190,7 @@ async function startCamera() {
     elems.btnManualMeasure.disabled = false;
     elems.btnAutoDetect.disabled = !state.opencvReady;
     elems.btnCapture.disabled = !state.opencvReady;
+    elems.btnAutoCalib.disabled = !state.opencvReady;
 
     const facing = state.facingMode === 'environment' ? '背面' : '前面';
     log(`カメラ開始: ${elems.video.videoWidth}x${elems.video.videoHeight} (${deviceId ? 'デバイス指定' : facing})`, 'info');
@@ -204,6 +208,7 @@ function stopCameraStream() {
 
 function stopCamera() {
   stopAutoDetect();
+  stopAutoCalib();
   stopCameraStream();
   elems.video.srcObject = null;
   state.cameraActive = false;
@@ -214,6 +219,7 @@ function stopCamera() {
   elems.btnAutoDetect.disabled = true;
   elems.btnManualMeasure.disabled = true;
   elems.btnCapture.disabled = true;
+  elems.btnAutoCalib.disabled = true;
   clearOverlay();
   log('カメラ停止', 'info');
 }
@@ -451,6 +457,224 @@ function finishCalibration() {
 }
 
 // =====================================================================
+// 自動キャリブレーション（カード/コイン認識）
+// =====================================================================
+elems.btnAutoCalib.addEventListener('click', toggleAutoCalib);
+
+let autoCalibFrameId = null;
+let autoCalibConfirmCount = 0;
+let lastAutoCalibTime = 0;
+
+function toggleAutoCalib() {
+  if (state.autoCalibRunning) {
+    stopAutoCalib();
+  } else {
+    startAutoCalib();
+  }
+}
+
+function startAutoCalib() {
+  if (!state.opencvReady || !state.cameraActive) return;
+  stopAutoDetect();
+  exitManualModeQuiet();
+  cancelCalibration();
+  state.autoCalibRunning = true;
+  autoCalibConfirmCount = 0;
+  elems.btnAutoCalib.textContent = '自動校正中止';
+  elems.btnAutoCalib.className = 'btn btn-danger';
+  log('クレジットカードまたは500円硬貨をカメラに向けてください', 'info');
+  clearOverlay();
+  autoCalibLoop();
+}
+
+function stopAutoCalib() {
+  state.autoCalibRunning = false;
+  autoCalibConfirmCount = 0;
+  if (autoCalibFrameId) {
+    cancelAnimationFrame(autoCalibFrameId);
+    autoCalibFrameId = null;
+  }
+  elems.btnAutoCalib.textContent = 'カード/コインで自動校正';
+  elems.btnAutoCalib.className = 'btn btn-secondary';
+}
+
+function autoCalibLoop() {
+  if (!state.autoCalibRunning || !state.cameraActive) return;
+  const now = performance.now();
+  if (now - lastAutoCalibTime > 300) {
+    lastAutoCalibTime = now;
+    runAutoCalibDetect();
+  }
+  autoCalibFrameId = requestAnimationFrame(autoCalibLoop);
+}
+
+function runAutoCalibDetect() {
+  const vw = elems.video.videoWidth;
+  const vh = elems.video.videoHeight;
+  if (!vw || !vh) return;
+
+  const tmpCanvas = document.createElement('canvas');
+  tmpCanvas.width = vw;
+  tmpCanvas.height = vh;
+  tmpCanvas.getContext('2d').drawImage(elems.video, 0, 0, vw, vh);
+
+  const found = detectReferenceObject(tmpCanvas);
+  clearOverlay();
+
+  if (found) {
+    autoCalibConfirmCount++;
+    drawCalibRefOverlay(elems.overlayCanvas.getContext('2d'), found);
+    if (autoCalibConfirmCount >= 3) {
+      applyAutoCalib(found);
+    }
+  } else {
+    autoCalibConfirmCount = 0;
+    const ctx = elems.overlayCanvas.getContext('2d');
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textBaseline = 'bottom';
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(4, elems.overlayCanvas.height - 28, 260, 22);
+    ctx.fillStyle = '#ffff00';
+    ctx.fillText('カード/コインを探しています...', 8, elems.overlayCanvas.height - 8);
+  }
+}
+
+function drawCalibRefOverlay(ctx, found) {
+  ctx.save();
+  ctx.strokeStyle = '#ffff00';
+  ctx.lineWidth = 3;
+  ctx.shadowColor = '#ffff00';
+  ctx.shadowBlur = 8;
+
+  if (found.type === 'card' && found.pts) {
+    ctx.beginPath();
+    ctx.moveTo(found.pts[0].x, found.pts[0].y);
+    for (let i = 1; i < 4; i++) ctx.lineTo(found.pts[i].x, found.pts[i].y);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    drawCalibLabel(ctx, `クレジットカード ✓  ${found.pixelsPerMm.toFixed(2)} px/mm`,
+      found.pts[0].x, found.pts[0].y - 6);
+  } else if (found.type === 'coin') {
+    ctx.beginPath();
+    ctx.arc(found.center.x, found.center.y, found.radiusPx, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    drawCalibLabel(ctx, `500円硬貨 ✓  ${found.pixelsPerMm.toFixed(2)} px/mm`,
+      found.center.x, found.center.y - found.radiusPx - 6);
+  }
+  ctx.restore();
+}
+
+function drawCalibLabel(ctx, text, x, y) {
+  ctx.font = 'bold 14px sans-serif';
+  ctx.textBaseline = 'bottom';
+  const tw = ctx.measureText(text).width;
+  x = Math.max(4, Math.min(x, elems.overlayCanvas.width - tw - 8));
+  y = Math.max(20, y);
+  ctx.fillStyle = 'rgba(0,0,0,0.65)';
+  ctx.fillRect(x - 3, y - 17, tw + 6, 19);
+  ctx.fillStyle = '#ffff00';
+  ctx.fillText(text, x, y);
+}
+
+function applyAutoCalib(found) {
+  stopAutoCalib();
+  state.calibPixelsPerMm = found.pixelsPerMm;
+  const typeName = found.type === 'card' ? 'クレジットカード (85.6mm)' : '500円硬貨 (26.5mm)';
+  elems.calibStatus.textContent = `自動校正完了: ${state.calibPixelsPerMm.toFixed(2)} px/mm`;
+  elems.resCalib.textContent = state.calibPixelsPerMm.toFixed(2);
+  drawCalibRefOverlay(elems.overlayCanvas.getContext('2d'), found);
+  log(`自動キャリブレーション完了 [${typeName}]: ${state.calibPixelsPerMm.toFixed(2)} px/mm`, 'info');
+}
+
+function detectReferenceObject(tmpCanvas) {
+  let src = null, gray = null, blurred = null, edges = null;
+  let contours = null, hierarchy = null;
+  try {
+    src = cv.imread(tmpCanvas);
+    gray = new cv.Mat();
+    blurred = new cv.Mat();
+    edges = new cv.Mat();
+    contours = new cv.MatVector();
+    hierarchy = new cv.Mat();
+
+    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+    cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
+    cv.Canny(blurred, edges, 30, 100);
+
+    const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(3, 3));
+    cv.dilate(edges, edges, kernel);
+    kernel.delete();
+
+    cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+    const imgArea = tmpCanvas.width * tmpCanvas.height;
+    let bestCard = null;
+    let bestCoin = null;
+
+    for (let i = 0; i < contours.size(); i++) {
+      const cnt = contours.get(i);
+      const area = cv.contourArea(cnt);
+
+      if (area < imgArea * 0.02 || area > imgArea * 0.85) { cnt.delete(); continue; }
+
+      const peri = cv.arcLength(cnt, true);
+      if (peri < 20) { cnt.delete(); continue; }
+
+      const circularity = 4 * Math.PI * area / (peri * peri);
+      const rect = cv.minAreaRect(cnt);
+      const rw = Math.max(rect.size.width, rect.size.height);
+      const rh = Math.min(rect.size.width, rect.size.height);
+      if (rh < 10) { cnt.delete(); continue; }
+      const aspect = rw / rh;
+
+      // クレジットカード: アスペクト比 ~1.586 (85.6mm / 54mm)、矩形
+      if (aspect >= 1.35 && aspect <= 1.85 && circularity < 0.75) {
+        const approx = new cv.Mat();
+        cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
+        const corners = approx.rows;
+        approx.delete();
+        if (corners >= 4 && corners <= 7) {
+          if (!bestCard || area > bestCard.area) {
+            bestCard = {
+              type: 'card',
+              area,
+              pixelsPerMm: rw / 85.6,
+              pts: cv.RotatedRect.points(rect),
+            };
+          }
+        }
+      }
+
+      // 500円硬貨: 高い真円度 (>0.72)、アスペクト比ほぼ1
+      if (circularity > 0.72 && aspect < 1.3) {
+        const radiusPx = Math.sqrt(area / Math.PI);
+        if (!bestCoin || area > bestCoin.area) {
+          bestCoin = {
+            type: 'coin',
+            area,
+            pixelsPerMm: (radiusPx * 2) / 26.5,
+            radiusPx,
+            center: { x: rect.center.x, y: rect.center.y },
+          };
+        }
+      }
+
+      cnt.delete();
+    }
+
+    return bestCard || bestCoin || null;
+  } catch (_) {
+    return null;
+  } finally {
+    [src, gray, blurred, edges, contours, hierarchy].forEach(m => {
+      try { if (m) m.delete(); } catch (_) {}
+    });
+  }
+}
+
+// =====================================================================
 // 手動計測モード
 // =====================================================================
 elems.btnManualMeasure.addEventListener('click', toggleManualMode);
@@ -465,6 +689,7 @@ function toggleManualMode() {
 
 function enterManualMode() {
   stopAutoDetect();
+  stopAutoCalib();
   state.manualMode = true;
   state.manualPoints = [];
   state.calibrating = false;
@@ -581,6 +806,7 @@ function startAutoDetect() {
     return;
   }
   exitManualModeQuiet();
+  stopAutoCalib();
   state.autoDetectRunning = true;
   elems.btnAutoDetect.textContent = '自動検出停止';
   elems.btnAutoDetect.className = 'btn btn-danger';
@@ -1095,6 +1321,7 @@ elems.btnSaveImage.addEventListener('click', () => {
 // =====================================================================
 elems.btnReset.addEventListener('click', () => {
   stopAutoDetect();
+  stopAutoCalib();
   exitManualModeQuiet();
   cancelCalibration();
   clearOverlay();
