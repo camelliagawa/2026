@@ -58,8 +58,13 @@ const elems = {
   processedCanvas:    $('processed-canvas'),
   resStatus:          $('res-status'),
   resBladeLength:     $('res-blade-length'),
+  unitBladeLength:    $('unit-blade-length'),
+  resTotalLength:     $('res-total-length'),
+  unitTotalLength:    $('unit-total-length'),
   resBladeWidth:      $('res-blade-width'),
+  unitBladeWidth:     $('unit-blade-width'),
   resBbox:            $('res-bbox'),
+  unitBbox:           $('unit-bbox'),
   resAngle:           $('res-angle'),
   resCalib:           $('res-calib'),
   historyBody:        $('history-body'),
@@ -522,11 +527,16 @@ function calculateManualMeasurement() {
   if (state.calibPixelsPerMm) {
     lengthMm = pixelLen / state.calibPixelsPerMm;
     elems.resBladeLength.textContent = lengthMm.toFixed(1);
+    elems.unitBladeLength.textContent = 'mm';
     log(`手動計測: 刃渡り = ${lengthMm.toFixed(1)} mm (${pixelLen.toFixed(1)} px)`, 'detect');
   } else {
-    elems.resBladeLength.textContent = `${pixelLen.toFixed(0)} px`;
+    elems.resBladeLength.textContent = pixelLen.toFixed(0);
+    elems.unitBladeLength.textContent = 'px';
     log(`手動計測: ${pixelLen.toFixed(0)} px (キャリブレーション未設定)`, 'warn');
   }
+  // 手動計測は刃のみを2点指定するため全長欄はクリア
+  elems.resTotalLength.textContent = '--';
+  elems.unitTotalLength.textContent = 'mm';
 
   elems.resAngle.textContent = angle.toFixed(1);
   elems.resStatus.textContent = '手動計測完了';
@@ -679,33 +689,39 @@ function detectKnifeFrame(saveResult = false) {
         drawRotatedRect(overlayCtx, pts, '#00ff88', 2);
       }
 
-      const bladeLengthPx = bestRect.w;
-      const bladeWidthPx = bestRect.h;
-      const angleRaw = bestRect.rect.angle;
+      const totalLengthPx = bestRect.w;   // 刃＋柄の全長
+      const bladeWidthPx  = bestRect.h;
+      const angleRaw      = bestRect.rect.angle;
 
-      let bladeLengthMm = null;
-      let bladeWidthMm = null;
+      // 幅プロファイル解析で刃部分のみの長さを推定
+      const bladeOnlyPx = estimateBladeLength(bestContour, bestRect.rect) ?? totalLengthPx;
+
+      let bladeOnlyMm   = null;
+      let totalLengthMm = null;
+      let bladeWidthMm  = null;
       if (state.calibPixelsPerMm) {
-        bladeLengthMm = bladeLengthPx / state.calibPixelsPerMm;
-        bladeWidthMm = bladeWidthPx / state.calibPixelsPerMm;
+        bladeOnlyMm   = bladeOnlyPx   / state.calibPixelsPerMm;
+        totalLengthMm = totalLengthPx / state.calibPixelsPerMm;
+        bladeWidthMm  = bladeWidthPx  / state.calibPixelsPerMm;
       }
 
       const bbox = cv.boundingRect(bestContour);
 
       updateResults({
         status: '包丁検出',
-        bladeLengthPx, bladeLengthMm,
-        bladeWidthPx, bladeWidthMm,
+        bladeOnlyPx,   bladeOnlyMm,
+        totalLengthPx, totalLengthMm,
+        bladeWidthPx,  bladeWidthMm,
         bbox, angle: angleRaw,
       });
 
       if (saveResult) {
         addHistory({
-          bladeLength: bladeLengthMm ?? bladeLengthPx,
-          bladeWidth: bladeWidthMm ?? bladeWidthPx,
+          bladeLength: bladeOnlyMm ?? bladeOnlyPx,
+          bladeWidth:  bladeWidthMm ?? bladeWidthPx,
           angle: angleRaw,
         });
-        log(`撮影解析: 刃渡り ${bladeLengthMm ? bladeLengthMm.toFixed(1) + ' mm' : bladeLengthPx.toFixed(0) + ' px'}`, 'detect');
+        log(`撮影解析: 刃渡り ${bladeOnlyMm ? bladeOnlyMm.toFixed(1) + ' mm' : bladeOnlyPx.toFixed(0) + ' px'} / 全長 ${totalLengthMm ? totalLengthMm.toFixed(1) + ' mm' : totalLengthPx.toFixed(0) + ' px'}`, 'detect');
       }
 
       bestContour.delete();
@@ -760,25 +776,106 @@ function clearOverlay() {
 }
 
 // =====================================================================
+// 刃部分のみ長さ推定（幅プロファイル解析）
+// =====================================================================
+function estimateBladeLength(contour, rect) {
+  const angle = rect.angle;
+  const cx = rect.center.x;
+  const cy = rect.center.y;
+  const rad = angle * Math.PI / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+
+  // 輪郭点群を回転して長軸を水平に揃える
+  const pts = [];
+  for (let i = 0; i < contour.rows; i++) {
+    const px = contour.data32S[i * 2];
+    const py = contour.data32S[i * 2 + 1];
+    pts.push({
+      x:  cos * (px - cx) + sin * (py - cy),
+      y: -sin * (px - cx) + cos * (py - cy),
+    });
+  }
+
+  const minX = Math.min(...pts.map(p => p.x));
+  const maxX = Math.max(...pts.map(p => p.x));
+  const range = maxX - minX;
+  if (range < 1) return null;
+
+  // 50ビンの幅プロファイルを作成
+  const BINS = 50;
+  const binSize = range / BINS;
+  const minY = new Array(BINS).fill(Infinity);
+  const maxY = new Array(BINS).fill(-Infinity);
+  pts.forEach(p => {
+    const b = Math.min(Math.floor((p.x - minX) / binSize), BINS - 1);
+    if (p.y < minY[b]) minY[b] = p.y;
+    if (p.y > maxY[b]) maxY[b] = p.y;
+  });
+  const widths = minY.map((mn, i) => mn === Infinity ? 0 : maxY[i] - mn);
+
+  // 移動平均スムージング（窓幅3）
+  const smoothed = widths.map((_, i) => {
+    const s = Math.max(0, i - 1);
+    const e = Math.min(BINS - 1, i + 1);
+    const vals = widths.slice(s, e + 1).filter(v => v > 0);
+    return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+  });
+
+  const maxWidth = Math.max(...smoothed);
+  if (maxWidth < 1) return null;
+
+  // 幅が最大幅の60%を超える箇所を「柄」とみなす閾値
+  const threshold = maxWidth * 0.60;
+
+  // 両端の平均幅を比較して刃先側（幅が小さい端）を特定
+  const leftAvg  = smoothed.slice(0, 5).reduce((a, b) => a + b, 0) / 5;
+  const rightAvg = smoothed.slice(-5).reduce((a, b) => a + b, 0) / 5;
+  const tipSide  = leftAvg <= rightAvg ? 'left' : 'right';
+
+  // 刃先から柄に向かって走査し、閾値を超えた点を刃元（境界）とする
+  let junctionBin;
+  if (tipSide === 'left') {
+    junctionBin = smoothed.findIndex((w, i) => i > 2 && w > threshold);
+    if (junctionBin < 0) junctionBin = BINS - 1;
+  } else {
+    const rev = [...smoothed].reverse();
+    const idx  = rev.findIndex((w, i) => i > 2 && w > threshold);
+    junctionBin = idx >= 0 ? BINS - 1 - idx : 0;
+  }
+
+  const tipBin = tipSide === 'left' ? 0 : BINS - 1;
+  return Math.abs(junctionBin - tipBin) * binSize;
+}
+
+// =====================================================================
 // 結果表示
 // =====================================================================
-function updateResults({ status, bladeLengthPx, bladeLengthMm, bladeWidthPx, bladeWidthMm, bbox, angle }) {
-  elems.resStatus.textContent = status;
+function setVal(valElem, unitElem, mm, px, unitLabel = 'mm') {
+  if (mm !== null && mm !== undefined) {
+    valElem.textContent = mm.toFixed(1);
+    unitElem.textContent = unitLabel;
+  } else {
+    valElem.textContent = px !== undefined ? px.toFixed(0) : '--';
+    unitElem.textContent = 'px';
+  }
+}
 
-  elems.resBladeLength.textContent = bladeLengthMm !== null && bladeLengthMm !== undefined
-    ? bladeLengthMm.toFixed(1)
-    : `${bladeLengthPx.toFixed(0)} px`;
+function updateResults({ status, bladeOnlyPx, bladeOnlyMm, totalLengthPx, totalLengthMm,
+                         bladeWidthPx, bladeWidthMm, bbox, angle }) {
+  const calib = state.calibPixelsPerMm;
+  elems.resStatus.textContent = calib ? status : `${status}（キャリブレーション未設定・px表示）`;
 
-  elems.resBladeWidth.textContent = bladeWidthMm !== null && bladeWidthMm !== undefined
-    ? bladeWidthMm.toFixed(1)
-    : `${bladeWidthPx.toFixed(0)} px`;
+  setVal(elems.resBladeLength,  elems.unitBladeLength,  bladeOnlyMm,   bladeOnlyPx);
+  setVal(elems.resTotalLength,  elems.unitTotalLength,  totalLengthMm, totalLengthPx);
+  setVal(elems.resBladeWidth,   elems.unitBladeWidth,   bladeWidthMm,  bladeWidthPx);
 
-  if (bbox && state.calibPixelsPerMm) {
-    const bw = (bbox.width / state.calibPixelsPerMm).toFixed(1);
-    const bh = (bbox.height / state.calibPixelsPerMm).toFixed(1);
-    elems.resBbox.textContent = `${bw} × ${bh}`;
+  if (bbox && calib) {
+    elems.resBbox.textContent = `${(bbox.width / calib).toFixed(1)} × ${(bbox.height / calib).toFixed(1)}`;
+    elems.unitBbox.textContent = 'mm';
   } else if (bbox) {
-    elems.resBbox.textContent = `${bbox.width} × ${bbox.height} px`;
+    elems.resBbox.textContent = `${bbox.width} × ${bbox.height}`;
+    elems.unitBbox.textContent = 'px';
   }
 
   elems.resAngle.textContent = angle !== undefined ? angle.toFixed(1) : '--';
@@ -868,8 +965,13 @@ elems.btnReset.addEventListener('click', () => {
   elems.calibStatus.textContent = '';
   elems.resCalib.textContent = '未設定';
   elems.resBladeLength.textContent = '--';
+  elems.unitBladeLength.textContent = 'mm';
+  elems.resTotalLength.textContent = '--';
+  elems.unitTotalLength.textContent = 'mm';
   elems.resBladeWidth.textContent = '--';
+  elems.unitBladeWidth.textContent = 'mm';
   elems.resBbox.textContent = '--';
+  elems.unitBbox.textContent = 'mm';
   elems.resAngle.textContent = '--';
   elems.resStatus.textContent = '待機中';
   elems.processedCanvas.getContext('2d').clearRect(
