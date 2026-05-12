@@ -36,7 +36,6 @@ const elems = {
   btnStopCamera:      $('btn-stop-camera'),
   btnFlipCamera:      $('btn-flip-camera'),
   calibStatus:        $('calibration-status'),
-  btnManualMeasure:   $('btn-manual-measure'),
   btnCapture:         $('btn-capture'),
   fileInput:          $('file-input'),
   cannyLow:           $('canny-low'),
@@ -189,7 +188,6 @@ async function startCamera() {
     elems.btnStartCamera.disabled = true;
     elems.btnStopCamera.disabled = false;
     elems.btnFlipCamera.disabled = false;
-    elems.btnManualMeasure.disabled = false;
     elems.btnCapture.disabled = !state.opencvReady;
 
     const facing = state.facingMode === 'environment' ? '背面' : '前面';
@@ -213,7 +211,6 @@ function stopCamera() {
   elems.btnStartCamera.disabled = false;
   elems.btnStopCamera.disabled = true;
   elems.btnFlipCamera.disabled = true;
-  elems.btnManualMeasure.disabled = true;
   elems.btnCapture.disabled = true;
   clearOverlay();
   log('カメラ停止', 'info');
@@ -493,36 +490,9 @@ function detectReferenceObject(tmpCanvas) {
 // =====================================================================
 // 手動計測モード
 // =====================================================================
-elems.btnManualMeasure.addEventListener('click', toggleManualMode);
-
-function toggleManualMode() {
-  if (state.manualMode) {
-    exitManualMode();
-  } else {
-    enterManualMode();
-  }
-}
-
-function enterManualMode() {
-  state.manualMode = true;
-  state.manualPoints = [];
-  elems.btnManualMeasure.textContent = '手動計測終了';
-  elems.btnManualMeasure.className = 'btn btn-danger';
-  clearOverlay();
-  log('手動計測: 刃の両端を2点タップしてください。', 'info');
-  updateStatus('手動計測: 刃の両端をタップ');
-}
-
-function exitManualMode() {
-  exitManualModeQuiet();
-  log('手動計測モード終了', 'info');
-}
-
 function exitManualModeQuiet() {
   state.manualMode = false;
   state.manualPoints = [];
-  elems.btnManualMeasure.textContent = '手動計測（2点タップ）';
-  elems.btnManualMeasure.className = 'btn btn-secondary';
   clearOverlay();
 }
 
