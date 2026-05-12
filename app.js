@@ -9,9 +9,6 @@ const state = {
   stream: null,
   facingMode: 'environment',     // 'environment'=背面 / 'user'=前面
   calibPixelsPerMm: null,        // px/mm
-  calibrating: false,
-  calibStart: null,              // {x, y} canvas座標
-  calibEnd: null,                // {x, y} canvas座標
   manualMode: false,
   manualPoints: [],              // 手動計測点 [{x,y}, ...]
   history: [],
@@ -38,9 +35,6 @@ const elems = {
   btnStartCamera:     $('btn-start-camera'),
   btnStopCamera:      $('btn-stop-camera'),
   btnFlipCamera:      $('btn-flip-camera'),
-  refLength:          $('ref-length'),
-  refType:            $('ref-type'),
-  btnCalibrate:       $('btn-calibrate'),
   calibStatus:        $('calibration-status'),
   btnManualMeasure:   $('btn-manual-measure'),
   btnCapture:         $('btn-capture'),
@@ -195,7 +189,6 @@ async function startCamera() {
     elems.btnStartCamera.disabled = true;
     elems.btnStopCamera.disabled = false;
     elems.btnFlipCamera.disabled = false;
-    elems.btnCalibrate.disabled = false;
     elems.btnManualMeasure.disabled = false;
     elems.btnCapture.disabled = !state.opencvReady;
 
@@ -220,7 +213,6 @@ function stopCamera() {
   elems.btnStartCamera.disabled = false;
   elems.btnStopCamera.disabled = true;
   elems.btnFlipCamera.disabled = true;
-  elems.btnCalibrate.disabled = true;
   elems.btnManualMeasure.disabled = true;
   elems.btnCapture.disabled = true;
   clearOverlay();
@@ -281,80 +273,6 @@ elems.showContours.addEventListener('change', () => {
   state.params.showContours = elems.showContours.checked;
 });
 
-elems.refType.addEventListener('change', () => {
-  const presets = {
-    'credit-card': 85,
-    'a4-short': 210,
-    'coin-500': 26.5,
-    'custom': +elems.refLength.value,
-  };
-  const v = presets[elems.refType.value];
-  if (v !== undefined) elems.refLength.value = v;
-});
-
-// =====================================================================
-// キャリブレーション
-// =====================================================================
-elems.btnCalibrate.addEventListener('click', toggleCalibration);
-
-function toggleCalibration() {
-  if (state.calibrating) {
-    cancelCalibration();
-  } else {
-    startCalibration();
-  }
-}
-
-function startCalibration() {
-  state.calibrating = true;
-  state.calibStart = null;
-  state.calibEnd = null;
-  exitManualModeQuiet();
-
-  elems.btnCalibrate.textContent = 'キャリブレーション中止';
-  elems.btnCalibrate.className = 'btn btn-danger';
-  elems.calibStatus.textContent = '基準物体の一端をタップしてください';
-  clearOverlay();
-  drawCalibGuide();
-  log('キャリブレーション開始。基準物体の一端をタップ/クリックしてください。', 'info');
-}
-
-function cancelCalibration() {
-  state.calibrating = false;
-  elems.btnCalibrate.textContent = 'キャリブレーション開始';
-  elems.btnCalibrate.className = 'btn btn-secondary';
-  elems.calibStatus.textContent = '';
-  clearOverlay();
-  log('キャリブレーション中止', 'warn');
-}
-
-function drawCalibGuide() {
-  const ctx = elems.overlayCanvas.getContext('2d');
-  const w = elems.overlayCanvas.width;
-  const h = elems.overlayCanvas.height;
-  ctx.clearRect(0, 0, w, h);
-  ctx.strokeStyle = 'rgba(255,255,0,0.4)';
-  ctx.setLineDash([10, 10]);
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(w / 2, 0); ctx.lineTo(w / 2, h);
-  ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2);
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  if (state.calibStart) {
-    drawPoint(ctx, state.calibStart, '#ffff00', 10, '始点');
-  }
-  if (state.calibStart && state.calibEnd) {
-    drawPoint(ctx, state.calibEnd, '#ffff00', 10, '終点');
-    ctx.beginPath();
-    ctx.strokeStyle = '#ffff00';
-    ctx.lineWidth = 2;
-    ctx.moveTo(state.calibStart.x, state.calibStart.y);
-    ctx.lineTo(state.calibEnd.x, state.calibEnd.y);
-    ctx.stroke();
-  }
-}
 
 // =====================================================================
 // キャンバス座標変換（マウス・タッチ共通）
@@ -391,72 +309,12 @@ elems.overlayCanvas.addEventListener('touchmove', (e) => {
 }, { passive: false });
 
 function onCanvasMouseMove(e) {
-  if (!state.calibrating && !state.manualMode) return;
-  const pos = canvasCoords(e);
-  const ctx = elems.overlayCanvas.getContext('2d');
-
-  if (state.calibrating) {
-    drawCalibGuide();
-    if (state.calibStart) {
-      ctx.beginPath();
-      ctx.strokeStyle = 'rgba(255,255,0,0.6)';
-      ctx.setLineDash([5, 5]);
-      ctx.lineWidth = 1.5;
-      ctx.moveTo(state.calibStart.x, state.calibStart.y);
-      ctx.lineTo(pos.x, pos.y);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
-  } else if (state.manualMode) {
-    redrawManualPoints(pos);
-  }
+  if (!state.manualMode) return;
+  redrawManualPoints(canvasCoords(e));
 }
 
 function onCanvasClick(e) {
-  const pos = canvasCoords(e);
-
-  if (state.calibrating) {
-    handleCalibClick(pos);
-  } else if (state.manualMode) {
-    handleManualClick(pos);
-  }
-}
-
-function handleCalibClick(pos) {
-  if (!state.calibStart) {
-    state.calibStart = pos;
-    elems.calibStatus.textContent = '他端をタップしてください';
-    drawCalibGuide();
-  } else {
-    state.calibEnd = pos;
-    finishCalibration();
-  }
-}
-
-function finishCalibration() {
-  const dx = state.calibEnd.x - state.calibStart.x;
-  const dy = state.calibEnd.y - state.calibStart.y;
-  const pixelDist = Math.sqrt(dx * dx + dy * dy);
-  const realMm = +elems.refLength.value;
-
-  if (pixelDist < 10) {
-    log('タップ点が近すぎます。もう一度試してください。', 'warn');
-    state.calibStart = null;
-    state.calibEnd = null;
-    elems.calibStatus.textContent = '始点をタップしてください';
-    return;
-  }
-
-  state.calibPixelsPerMm = pixelDist / realMm;
-  state.calibrating = false;
-
-  elems.btnCalibrate.textContent = 'キャリブレーション開始';
-  elems.btnCalibrate.className = 'btn btn-secondary';
-  elems.calibStatus.textContent = `完了: ${state.calibPixelsPerMm.toFixed(2)} px/mm`;
-  elems.resCalib.textContent = state.calibPixelsPerMm.toFixed(2);
-
-  drawCalibGuide();
-  log(`キャリブレーション完了: ${state.calibPixelsPerMm.toFixed(2)} px/mm (${realMm}mm = ${pixelDist.toFixed(1)}px)`, 'info');
+  if (state.manualMode) handleManualClick(canvasCoords(e));
 }
 
 // =====================================================================
@@ -483,11 +341,16 @@ function analyzeImage(canvas) {
     elems.resCalib.textContent     = state.calibPixelsPerMm.toFixed(2);
     log(`自動キャリブレーション [${typeName}]: ${state.calibPixelsPerMm.toFixed(2)} px/mm`, 'info');
   } else if (!state.calibPixelsPerMm) {
-    log('クレジットカード/コインが検出できませんでした。詳細設定から手動でキャリブレーションしてください。', 'warn');
+    log('クレジットカード/コインが検出できませんでした。カードが画面に収まっているか確認してください。寸法はpx表示になります。', 'warn');
   }
 
   // Step 2: 包丁検出・計測
   detectKnifeOnCanvas(canvas, true);
+
+  // Step 3: 検出結果画像にカード枠を描画
+  if (calRef && !elems.resultImageBox.classList.contains('hidden')) {
+    drawCalibRefOverlay(elems.annotatedCanvas.getContext('2d'), calRef);
+  }
 }
 
 function drawCalibRefOverlay(ctx, found) {
@@ -558,7 +421,7 @@ function detectReferenceObject(tmpCanvas) {
       const cnt = contours.get(i);
       const area = cv.contourArea(cnt);
 
-      if (area < imgArea * 0.02 || area > imgArea * 0.85) { cnt.delete(); continue; }
+      if (area < imgArea * 0.005 || area > imgArea * 0.85) { cnt.delete(); continue; }
 
       const peri = cv.arcLength(cnt, true);
       if (peri < 20) { cnt.delete(); continue; }
@@ -631,7 +494,6 @@ function toggleManualMode() {
 function enterManualMode() {
   state.manualMode = true;
   state.manualPoints = [];
-  state.calibrating = false;
   elems.btnManualMeasure.textContent = '手動計測終了';
   elems.btnManualMeasure.className = 'btn btn-danger';
   clearOverlay();
@@ -1049,7 +911,12 @@ function drawMeasLine(ctx, p1, p2, color, label, lw, dotR, tickLen) {
 // 刃部分のみ長さ推定（幅プロファイル解析）
 // =====================================================================
 function estimateBladeLength(contour, rect) {
-  const angle = rect.angle;
+  // OpenCVのminAreaRectはangle=widthベクトルのX軸からの角度(-90,0]を返す。
+  // height > width の場合、widthが短軸になっているため90°補正して長軸を水平に揃える。
+  let angle = rect.angle;
+  if (rect.size.height > rect.size.width) {
+    angle += 90;
+  }
   const cx = rect.center.x;
   const cy = rect.center.y;
   const rad = angle * Math.PI / 180;
@@ -1095,24 +962,13 @@ function estimateBladeLength(contour, rect) {
   const maxWidth = Math.max(...smoothed);
   if (maxWidth < 1) return null;
 
-  // 幅が最大幅の60%を超える箇所を「柄」とみなす閾値
-  const threshold = maxWidth * 0.60;
-
   // 最大幅ビンの位置で刃先側を判定する
-  // 刃元（刃と柄の境界に近い刃側）が最も幅広いため、刃先は最大幅ビンの反対側にある
+  // 包丁は刃先（細）→刃元（最大幅）→柄 の順に幅が変化するため、最大幅位置が刃渡りの終端
   const maxBin = smoothed.indexOf(Math.max(...smoothed));
   const tipSide = maxBin >= BINS / 2 ? 'left' : 'right';
 
-  // 刃先から柄に向かって走査し、閾値を超えた点を刃元（境界）とする
-  let junctionBin;
-  if (tipSide === 'left') {
-    junctionBin = smoothed.findIndex((w, i) => i > 2 && w > threshold);
-    if (junctionBin < 0) junctionBin = BINS - 1;
-  } else {
-    const rev = [...smoothed].reverse();
-    const idx  = rev.findIndex((w, i) => i > 2 && w > threshold);
-    junctionBin = idx >= 0 ? BINS - 1 - idx : 0;
-  }
+  // 最大幅ビンを刃元（刃渡りの境界）とする
+  const junctionBin = maxBin;
 
   const tipBin  = tipSide === 'left' ? 0 : BINS - 1;
   const lengthPx = Math.abs(junctionBin - tipBin) * binSize;
@@ -1276,7 +1132,6 @@ elems.btnSaveImage.addEventListener('click', () => {
 // =====================================================================
 elems.btnReset.addEventListener('click', () => {
   exitManualModeQuiet();
-  cancelCalibration();
   clearOverlay();
   state.calibPixelsPerMm = null;
   state.history = [];
