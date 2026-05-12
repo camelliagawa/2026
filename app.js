@@ -814,6 +814,7 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
         size:   { width: bestRect.rect.size.width, height: bestRect.rect.size.height },
       };
       updateBladeCurveBtn();
+      autoDrawBladeCurve();
       bestContour.delete();
     } else {
       updateStatus('包丁未検出');
@@ -1194,6 +1195,7 @@ function applyCalibration() {
   });
   if (state.lastCanvas && state.lastRectPts && state.lastBladeResult) {
     drawAnnotatedResult(state.lastCanvas, state.lastRectPts, state.lastBladeResult, ppm);
+    autoDrawBladeCurve();
   }
 }
 
@@ -1378,6 +1380,18 @@ function updateBladeCurveBtn() {
   }
 }
 
+function autoDrawBladeCurve() {
+  if (!state.calibPixelsPerMm || !state.lastContourPts) return;
+  const pts = extractBladeEdgeCurve();
+  if (!pts || pts.length === 0) return;
+  drawBladeEdgeCurve(pts);
+  if (elems.bladeCurveStatus) {
+    elems.bladeCurveStatus.textContent = `✓ 刃渡り曲線描画済み (${pts.length}点)`;
+    elems.bladeCurveStatus.classList.remove('hidden');
+  }
+  log(`刃渡り曲線描画: ${pts.length}点`, 'detect');
+}
+
 // Gaussian smooth an array (skips emptyVal entries)
 function gaussianSmoothArr(arr, emptyVal, sigma) {
   const kr = Math.ceil(3 * sigma);
@@ -1420,8 +1434,8 @@ function extractBladeEdgeCurve() {
     y: -sinA * (p.x - cx) + cosA * (p.y - cy),
   }));
 
-  const minX = Math.min(...rotPts.map(p => p.x));
-  const maxX = Math.max(...rotPts.map(p => p.x));
+  let minX = Infinity, maxX = -Infinity;
+  rotPts.forEach(p => { if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x; });
   const range = maxX - minX;
   if (range < 1) return null;
 
