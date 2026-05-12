@@ -18,6 +18,8 @@ const state = {
   pendingResult: null,
   calTapMode: false,
   calTapPts: [],
+  roiTapMode: false,
+  roiTapPts: [],
   lastCanvas: null,
   lastRectPts: null,
   lastBladeResult: null,
@@ -74,6 +76,12 @@ const elems = {
   btnCalibFromCard:   $('btn-calib-from-card'),
   calibTapHint:       $('calib-tap-hint'),
   btnCancelCalibTap:  $('btn-cancel-calib-tap'),
+  btnRoiDetect:       $('btn-roi-detect'),
+  roiTapHint:         $('roi-tap-hint'),
+  btnCancelRoiTap:    $('btn-cancel-roi-tap'),
+  cardDetectFailed:   $('card-detect-failed'),
+  btnRetryRoi:        $('btn-retry-roi'),
+  versionInfo:        $('version-info'),
   historyBody:        $('history-body'),
   btnClearHistory:    $('btn-clear-history'),
   btnExportCsv:       $('btn-export-csv'),
@@ -1106,31 +1114,49 @@ elems.annotatedCanvas.addEventListener('touchend', (e) => {
 }, { passive: false });
 
 function onAnnotatedCanvasClick(e) {
-  if (!state.calTapMode) return;
+  if (!state.calTapMode && !state.roiTapMode) return;
   const pt = annotatedCanvasCoords(e);
-  state.calTapPts.push(pt);
-
-  // 1点目: マーカー描画
   const ctx = elems.annotatedCanvas.getContext('2d');
-  ctx.beginPath();
-  ctx.arc(pt.x, pt.y, 10, 0, Math.PI * 2);
-  ctx.fillStyle = state.calTapPts.length === 1 ? '#ffff00' : '#00e87a';
-  ctx.fill();
-  ctx.strokeStyle = '#000';
-  ctx.lineWidth = 2;
-  ctx.stroke();
 
-  if (state.calTapPts.length >= 2) {
-    const [p1, p2] = state.calTapPts;
-    const dx = p2.x - p1.x;
-    const dy = p2.y - p1.y;
-    const distPx = Math.sqrt(dx * dx + dy * dy);
-    state.calibPixelsPerMm = distPx / 85.6;
-    log(`手動校正完了: ${state.calibPixelsPerMm.toFixed(2)} px/mm（${distPx.toFixed(0)} px = 85.6 mm）`, 'info');
-    elems.calibStatus.textContent = `手動校正: ${state.calibPixelsPerMm.toFixed(2)} px/mm`;
-    elems.resCalib.textContent = state.calibPixelsPerMm.toFixed(2);
-    exitCalibTapMode();
-    applyCalibration();
+  if (state.calTapMode) {
+    state.calTapPts.push(pt);
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, 10, 0, Math.PI * 2);
+    ctx.fillStyle = state.calTapPts.length === 1 ? '#ffff00' : '#00e87a';
+    ctx.fill();
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    if (state.calTapPts.length >= 2) {
+      const [p1, p2] = state.calTapPts;
+      const distPx = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      state.calibPixelsPerMm = distPx / 85.6;
+      log(`手動校正完了: ${state.calibPixelsPerMm.toFixed(2)} px/mm（${distPx.toFixed(0)} px = 85.6 mm）`, 'info');
+      elems.calibStatus.textContent = `手動校正: ${state.calibPixelsPerMm.toFixed(2)} px/mm`;
+      elems.resCalib.textContent = state.calibPixelsPerMm.toFixed(2);
+      exitCalibTapMode();
+      applyCalibration();
+    }
+  } else if (state.roiTapMode) {
+    state.roiTapPts.push(pt);
+    // 1点目: コーナーマーカー
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, 8, 0, Math.PI * 2);
+    ctx.fillStyle = '#ff9900';
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    if (state.roiTapPts.length >= 2) {
+      const [p1, p2] = state.roiTapPts;
+      // ROI矩形を描画
+      ctx.strokeStyle = '#ff9900';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 3]);
+      ctx.strokeRect(p1.x, p1.y, p2.x - p1.x, p2.y - p1.y);
+      ctx.setLineDash([]);
+      detectInRoi(p1.x, p1.y, p2.x, p2.y);
+    }
   }
 }
 
@@ -1147,6 +1173,85 @@ function applyCalibration() {
   });
   if (state.lastCanvas && state.lastRectPts && state.lastBladeResult) {
     drawAnnotatedResult(state.lastCanvas, state.lastRectPts, state.lastBladeResult, ppm);
+  }
+}
+
+// =====================================================================
+// ROIエリア指定カード検出
+// =====================================================================
+elems.btnRoiDetect.addEventListener('click', enterRoiTapMode);
+elems.btnCancelRoiTap.addEventListener('click', exitRoiTapMode);
+elems.btnRetryRoi.addEventListener('click', () => {
+  elems.cardDetectFailed.classList.add('hidden');
+  enterRoiTapMode();
+});
+
+function enterRoiTapMode() {
+  state.roiTapMode = true;
+  state.roiTapPts = [];
+  elems.btnRoiDetect.classList.add('hidden');
+  elems.btnCalibFromCard.classList.add('hidden');
+  elems.roiTapHint.classList.remove('hidden');
+  elems.btnCancelRoiTap.classList.remove('hidden');
+  elems.cardDetectFailed.classList.add('hidden');
+  elems.annotatedCanvas.classList.add('tap-mode');
+  log('カードが写っている範囲の対角2点をタップしてください', 'info');
+}
+
+function exitRoiTapMode() {
+  state.roiTapMode = false;
+  state.roiTapPts = [];
+  elems.btnRoiDetect.classList.remove('hidden');
+  elems.btnCalibFromCard.classList.remove('hidden');
+  elems.roiTapHint.classList.add('hidden');
+  elems.btnCancelRoiTap.classList.add('hidden');
+  elems.annotatedCanvas.classList.remove('tap-mode');
+}
+
+function detectInRoi(x1, y1, x2, y2) {
+  if (!state.lastCanvas) return;
+  const cropX = Math.round(Math.min(x1, x2));
+  const cropY = Math.round(Math.min(y1, y2));
+  const cropW = Math.round(Math.abs(x2 - x1));
+  const cropH = Math.round(Math.abs(y2 - y1));
+  if (cropW < 20 || cropH < 20) {
+    log('選択エリアが小さすぎます', 'warn');
+    exitRoiTapMode();
+    return;
+  }
+
+  const cropCanvas = document.createElement('canvas');
+  cropCanvas.width = cropW;
+  cropCanvas.height = cropH;
+  cropCanvas.getContext('2d').drawImage(
+    state.lastCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH
+  );
+
+  const result = detectReferenceObject(cropCanvas);
+
+  if (result) {
+    // 座標を元画像の絶対座標に変換
+    if (result.pts) {
+      result.pts = result.pts.map(p => ({ x: p.x + cropX, y: p.y + cropY }));
+    }
+    if (result.longEdgePts) {
+      result.longEdgePts = result.longEdgePts.map(p => ({ x: p.x + cropX, y: p.y + cropY }));
+    }
+    if (result.center) {
+      result.center = { x: result.center.x + cropX, y: result.center.y + cropY };
+    }
+    state.calibPixelsPerMm = result.pixelsPerMm;
+    elems.calibStatus.textContent = `ROI自動校正: ${result.pixelsPerMm.toFixed(2)} px/mm`;
+    elems.resCalib.textContent = result.pixelsPerMm.toFixed(2);
+    log(`ROI内カード検出成功: ${result.pixelsPerMm.toFixed(2)} px/mm`, 'info');
+    applyCalibration();
+    // カードのオーバーレイを追記
+    drawCalibRefOverlay(elems.annotatedCanvas.getContext('2d'), result);
+    exitRoiTapMode();
+  } else {
+    log('指定エリア内でカードを検出できませんでした', 'warn');
+    exitRoiTapMode();
+    elems.cardDetectFailed.classList.remove('hidden');
   }
 }
 
@@ -1293,3 +1398,13 @@ window.addEventListener('resize', () => {
 // =====================================================================
 log('アプリ起動完了。カメラ開始ボタンを押してください。', 'info');
 log('OpenCV.js を読み込み中...', 'info');
+
+// バージョン情報取得
+fetch('version.json')
+  .then(r => r.json())
+  .then(v => {
+    if (elems.versionInfo) {
+      elems.versionInfo.textContent = `v${v.version}  ${v.date}`;
+    }
+  })
+  .catch(() => {});
