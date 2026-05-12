@@ -27,7 +27,8 @@ jobs:
           COUNT=$(git rev-list --count HEAD)
           DATE=$(TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M')
           SHA=$(git rev-parse --short HEAD)
-          echo "{\"version\":\"$COUNT\",\"date\":\"$DATE\",\"sha\":\"$SHA\"}" > version.json
+          NOTE=$(head -1 NOTES 2>/dev/null | sed 's/"/\\"/g' | tr -d '\n')
+          echo "{\"version\":\"$COUNT\",\"date\":\"$DATE\",\"sha\":\"$SHA\",\"note\":\"$NOTE\"}" > version.json
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
