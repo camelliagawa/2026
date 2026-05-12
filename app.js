@@ -24,6 +24,8 @@ const state = {
   lastRectPts: null,
   lastBladeResult: null,
   lastKnifeMetrics: null,
+  lastContourPts: null,
+  lastRect: null,
   params: {
     cannyLow: 50,
     cannyHigh: 150,
@@ -81,6 +83,7 @@ const elems = {
   btnCancelRoiTap:    $('btn-cancel-roi-tap'),
   cardDetectFailed:   $('card-detect-failed'),
   btnRetryRoi:        $('btn-retry-roi'),
+  btnBladeCurve:      $('btn-blade-curve'),
   versionInfo:        $('version-info'),
   historyBody:        $('history-body'),
   btnClearHistory:    $('btn-clear-history'),
@@ -368,6 +371,7 @@ function analyzeImage(canvas) {
     elems.calibStatus.textContent = `自動校正完了: ${state.calibPixelsPerMm.toFixed(2)} px/mm`;
     elems.resCalib.textContent     = state.calibPixelsPerMm.toFixed(2);
     log(`自動キャリブレーション [${typeName}]: ${state.calibPixelsPerMm.toFixed(2)} px/mm`, 'info');
+    updateBladeCurveBtn();
   } else if (!state.calibPixelsPerMm) {
     log('クレジットカード/コインが検出できませんでした。カードが画面に収まっているか確認してください。寸法はpx表示になります。', 'warn');
   }
@@ -794,6 +798,20 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
         });
       }
 
+      // 刃渡り曲線用に輪郭点群と矩形を保存
+      state.lastContourPts = [];
+      for (let i = 0; i < bestContour.rows; i++) {
+        state.lastContourPts.push({
+          x: bestContour.data32S[i * 2],
+          y: bestContour.data32S[i * 2 + 1],
+        });
+      }
+      state.lastRect = {
+        angle:  bestRect.rect.angle,
+        center: { x: bestRect.rect.center.x, y: bestRect.rect.center.y },
+        size:   { width: bestRect.rect.size.width, height: bestRect.rect.size.height },
+      };
+      updateBladeCurveBtn();
       bestContour.delete();
     } else {
       updateStatus('包丁未検出');
@@ -1108,7 +1126,7 @@ function exitCalibTapMode() {
 
 elems.annotatedCanvas.addEventListener('click', onAnnotatedCanvasClick);
 elems.annotatedCanvas.addEventListener('touchend', (e) => {
-  if (!state.calTapMode) return;
+  if (!state.calTapMode && !state.roiTapMode) return;
   e.preventDefault();
   onAnnotatedCanvasClick(e);
 }, { passive: false });
@@ -1136,6 +1154,7 @@ function onAnnotatedCanvasClick(e) {
       elems.resCalib.textContent = state.calibPixelsPerMm.toFixed(2);
       exitCalibTapMode();
       applyCalibration();
+      updateBladeCurveBtn();
     }
   } else if (state.roiTapMode) {
     state.roiTapPts.push(pt);
@@ -1245,6 +1264,7 @@ function detectInRoi(x1, y1, x2, y2) {
     elems.resCalib.textContent = result.pixelsPerMm.toFixed(2);
     log(`ROI内カード検出成功: ${result.pixelsPerMm.toFixed(2)} px/mm`, 'info');
     applyCalibration();
+    updateBladeCurveBtn();
     // カードのオーバーレイを追記
     drawCalibRefOverlay(elems.annotatedCanvas.getContext('2d'), result);
     exitRoiTapMode();
@@ -1348,6 +1368,178 @@ function exportCsv() {
 }
 
 // =====================================================================
+// 刃渡り曲線抽出・描画・CSV出力
+// =====================================================================
+function updateBladeCurveBtn() {
+  if (elems.btnBladeCurve) {
+    elems.btnBladeCurve.disabled = !(state.calibPixelsPerMm && state.lastContourPts);
+  }
+}
+
+function linearRmsResidual(arr) {
+  const n = arr.length;
+  if (n < 2) return 0;
+  const sumX  = (n - 1) * n / 2;
+  const sumX2 = (n - 1) * n * (2 * n - 1) / 6;
+  const sumY  = arr.reduce((s, v) => s + v, 0);
+  const sumXY = arr.reduce((s, v, i) => s + i * v, 0);
+  const denom = n * sumX2 - sumX * sumX;
+  if (Math.abs(denom) < 1e-10) return 0;
+  const slope = (n * sumXY - sumX * sumY) / denom;
+  const intercept = (sumY - slope * sumX) / n;
+  const rss = arr.reduce((s, v, i) => { const r = v - (slope * i + intercept); return s + r * r; }, 0);
+  return Math.sqrt(rss / n);
+}
+
+function extractBladeEdgeCurve() {
+  const ppm = state.calibPixelsPerMm;
+  if (!ppm || !state.lastContourPts || !state.lastRect) return null;
+
+  const { angle: rawAngle, center, size } = state.lastRect;
+  let angle = rawAngle;
+  if (size.height > size.width) angle += 90;
+  const cx = center.x, cy = center.y;
+  const rad = angle * Math.PI / 180;
+  const cosA = Math.cos(rad), sinA = Math.sin(rad);
+
+  const rotPts = state.lastContourPts.map(p => ({
+    x:  cosA * (p.x - cx) + sinA * (p.y - cy),
+    y: -sinA * (p.x - cx) + cosA * (p.y - cy),
+  }));
+
+  const minX = Math.min(...rotPts.map(p => p.x));
+  const maxX = Math.max(...rotPts.map(p => p.x));
+  const range = maxX - minX;
+  if (range < 1) return null;
+
+  // Coarse 50-bin profile to locate junction (same as estimateBladeLength)
+  const BINS = 50;
+  const coarseBin = range / BINS;
+  const coarseMinY = new Array(BINS).fill(Infinity);
+  const coarseMaxY = new Array(BINS).fill(-Infinity);
+  rotPts.forEach(p => {
+    const b = Math.min(Math.floor((p.x - minX) / coarseBin), BINS - 1);
+    if (p.y < coarseMinY[b]) coarseMinY[b] = p.y;
+    if (p.y > coarseMaxY[b]) coarseMaxY[b] = p.y;
+  });
+  const widths = coarseMinY.map((mn, i) => mn === Infinity ? 0 : coarseMaxY[i] - mn);
+  const smoothed = widths.map((_, i) => {
+    const s = Math.max(0, i - 1), e = Math.min(BINS - 1, i + 1);
+    const vals = widths.slice(s, e + 1).filter(v => v > 0);
+    return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+  });
+  const maxBin  = smoothed.indexOf(Math.max(...smoothed));
+  const tipSide = maxBin >= BINS / 2 ? 'left' : 'right';
+  const juncX_rot = minX + maxBin * coarseBin;
+  const tipX_rot  = tipSide === 'left' ? minX : maxX;
+
+  const bladeMinX = Math.min(juncX_rot, tipX_rot);
+  const bladeMaxX = Math.max(juncX_rot, tipX_rot);
+  const bladeRange = bladeMaxX - bladeMinX;
+  if (bladeRange < 1) return null;
+
+  // Fine bins at 0.1 mm resolution
+  const stepPx = Math.max(1, 0.1 * ppm);
+  const nSteps  = Math.max(1, Math.ceil(bladeRange / stepPx));
+  const actualStep = bladeRange / nSteps;
+
+  const fineMinY = new Array(nSteps).fill(Infinity);
+  const fineMaxY = new Array(nSteps).fill(-Infinity);
+  rotPts.forEach(p => {
+    if (p.x < bladeMinX - actualStep || p.x > bladeMaxX + actualStep) return;
+    const b = Math.max(0, Math.min(nSteps - 1, Math.floor((p.x - bladeMinX) / actualStep)));
+    if (p.y < fineMinY[b]) fineMinY[b] = p.y;
+    if (p.y > fineMaxY[b]) fineMaxY[b] = p.y;
+  });
+
+  // Fill gaps by forward then backward propagation
+  const fillGaps = (arr, empty) => {
+    let last = null;
+    for (let i = 0; i < arr.length; i++) {
+      if (arr[i] !== empty) last = arr[i];
+      else if (last !== null) arr[i] = last;
+    }
+    last = null;
+    for (let i = arr.length - 1; i >= 0; i--) {
+      if (arr[i] !== empty) last = arr[i];
+      else if (last !== null) arr[i] = last;
+    }
+  };
+  fillGaps(fineMinY, Infinity);
+  fillGaps(fineMaxY, -Infinity);
+
+  // Determine blade edge: side with higher RMS residual from linear fit = more curved
+  const validMin = fineMinY.filter(v => v !== Infinity);
+  const validMax = fineMaxY.filter(v => v !== -Infinity);
+  const rmsMin = linearRmsResidual(validMin);
+  const rmsMax = linearRmsResidual(validMax);
+  const bladeEdge = rmsMin > rmsMax ? fineMinY : fineMaxY;
+  const emptyVal  = rmsMin > rmsMax ? Infinity : -Infinity;
+
+  // Y at junction bin as offset reference (y=0 at blade heel)
+  const juncBinIdx = Math.max(0, Math.min(nSteps - 1,
+    Math.floor((juncX_rot - bladeMinX) / actualStep)));
+  const juncY = bladeEdge[juncBinIdx] !== emptyVal ? bladeEdge[juncBinIdx] : 0;
+
+  const pts = [];
+  for (let i = 0; i < nSteps; i++) {
+    const yRot = bladeEdge[i];
+    if (yRot === emptyVal) continue;
+    const xRot = bladeMinX + (i + 0.5) * actualStep;
+
+    // x in mm: 0 at heel, increasing toward tip
+    const distPx = tipSide === 'left' ? (juncX_rot - xRot) : (xRot - juncX_rot);
+    const xMm = distPx / ppm;
+    const yMm = (yRot - juncY) / ppm;
+
+    // Inverse-rotate to image coordinates
+    const imgX = cosA * xRot - sinA * yRot + cx;
+    const imgY = sinA * xRot + cosA * yRot + cy;
+
+    pts.push({ xMm, yMm, imgX, imgY });
+  }
+
+  return pts.sort((a, b) => a.xMm - b.xMm);
+}
+
+function drawBladeEdgeCurve(pts) {
+  const ctx = elems.annotatedCanvas.getContext('2d');
+  ctx.save();
+  ctx.fillStyle = '#00ffff';
+  ctx.shadowColor = '#00ffff';
+  ctx.shadowBlur = 4;
+  pts.forEach(p => {
+    ctx.beginPath();
+    ctx.arc(p.imgX, p.imgY, 3, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.restore();
+}
+
+function exportBladeEdgeCsv(pts) {
+  const rows = pts.map(p => `${p.xMm.toFixed(2)},${p.yMm.toFixed(2)}`);
+  const csv = ['x_mm,y_mm', ...rows].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `blade-curve-${Date.now()}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  log(`刃渡り曲線CSV出力: ${pts.length}点`, 'info');
+}
+
+elems.btnBladeCurve.addEventListener('click', () => {
+  const pts = extractBladeEdgeCurve();
+  if (!pts || pts.length === 0) {
+    log('刃渡り曲線を抽出できませんでした', 'warn');
+    return;
+  }
+  drawBladeEdgeCurve(pts);
+  exportBladeEdgeCsv(pts);
+});
+
+// =====================================================================
 // 画像保存
 // =====================================================================
 elems.btnSaveImage.addEventListener('click', () => {
@@ -1365,6 +1557,8 @@ elems.btnReset.addEventListener('click', () => {
   exitManualModeQuiet();
   clearOverlay();
   state.calibPixelsPerMm = null;
+  state.lastContourPts = null;
+  state.lastRect = null;
   state.history = [];
   elems.historyBody.innerHTML = '';
   elems.calibStatus.textContent = '';
@@ -1383,6 +1577,7 @@ elems.btnReset.addEventListener('click', () => {
     0, 0, elems.processedCanvas.width, elems.processedCanvas.height
   );
   elems.resultImageBox.classList.add('hidden');
+  updateBladeCurveBtn();
   log('全設定をリセット', 'warn');
 });
 
