@@ -1485,31 +1485,27 @@ function extractBladeEdgeCurve() {
   const smMinY = gaussianSmoothArr(medMinY, Infinity,   sigma);
   const smMaxY = gaussianSmoothArr(medMaxY, -Infinity,  sigma);
 
-  // Blade edge = the side that converges MORE toward the other edge near the knife tip.
-  // The cutting edge always sweeps sharply toward the spine at the tip regardless of
-  // whether the blade has a belly curve (Western) or is straight (Japanese).
-  const nEnd = Math.max(2, Math.round(nBins * 0.15));
-  let tipFrom, tipTo, heelFrom, heelTo;
-  if (tipSide === 'right') {
-    tipFrom = nBins - nEnd; tipTo = nBins - 1;
-    heelFrom = 0; heelTo = nEnd - 1;
-  } else {
-    tipFrom = 0; tipTo = nEnd - 1;
-    heelFrom = nBins - nEnd; heelTo = nBins - 1;
+  // Blade edge identification via junction continuity:
+  // The spine transitions smoothly from blade into the handle (small step at junction).
+  // The blade edge terminates abruptly at the junction — the handle bottom is much
+  // closer to center than the blade edge was, producing a larger step.
+  const handleDir = tipSide === 'right' ? -1 : 1;
+  const hA = Math.max(0, Math.min(BINS - 1, maxBin + handleDir));
+  const hB = Math.max(0, Math.min(BINS - 1, maxBin + handleDir * 5));
+  const hFrom = Math.min(hA, hB), hTo = Math.max(hA, hB);
+  let hMinSum = 0, hMinN = 0, hMaxSum = 0, hMaxN = 0;
+  for (let b = hFrom; b <= hTo; b++) {
+    if (coarseMinY[b] !== Infinity)  { hMinSum += coarseMinY[b]; hMinN++; }
+    if (coarseMaxY[b] !== -Infinity) { hMaxSum += coarseMaxY[b]; hMaxN++; }
   }
-  const meanInRange = (arr, empty, from, to) => {
-    let sum = 0, n = 0;
-    for (let i = from; i <= to; i++) if (arr[i] !== empty) { sum += arr[i]; n++; }
-    return n > 0 ? sum / n : null;
-  };
-  const heelMin = meanInRange(smMinY, Infinity,  heelFrom, heelTo);
-  const tipMin  = meanInRange(smMinY, Infinity,  tipFrom,  tipTo);
-  const heelMax = meanInRange(smMaxY, -Infinity, heelFrom, heelTo);
-  const tipMax  = meanInRange(smMaxY, -Infinity, tipFrom,  tipTo);
-  const convMin = (heelMin !== null && tipMin !== null) ? Math.abs(tipMin - heelMin) : 0;
-  const convMax = (heelMax !== null && tipMax !== null) ? Math.abs(tipMax - heelMax) : 0;
-  const bladeArr = convMax >= convMin ? smMaxY : smMinY;
-  const emptyVal = convMax >= convMin ? -Infinity : Infinity;
+  const hMeanMin = hMinN > 0 ? hMinSum / hMinN : null;
+  const hMeanMax = hMaxN > 0 ? hMaxSum / hMaxN : null;
+  const jMinY = coarseMinY[maxBin] !== Infinity  ? coarseMinY[maxBin] : null;
+  const jMaxY = coarseMaxY[maxBin] !== -Infinity ? coarseMaxY[maxBin] : null;
+  const stepMin = (jMinY !== null && hMeanMin !== null) ? Math.abs(hMeanMin - jMinY) : 0;
+  const stepMax = (jMaxY !== null && hMeanMax !== null) ? Math.abs(hMeanMax - jMaxY) : 0;
+  const bladeArr = stepMax >= stepMin ? smMaxY : smMinY;
+  const emptyVal  = stepMax >= stepMin ? -Infinity : Infinity;
 
   // Y at heel (junction) as y=0 reference for CSV
   const heelBin = Math.max(0, Math.min(nBins - 1, Math.round((juncX_rot - bladeMinX) / binPx)));
