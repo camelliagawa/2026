@@ -1376,19 +1376,30 @@ function updateBladeCurveBtn() {
   }
 }
 
-function linearRmsResidual(arr) {
-  const n = arr.length;
-  if (n < 2) return 0;
-  const sumX  = (n - 1) * n / 2;
-  const sumX2 = (n - 1) * n * (2 * n - 1) / 6;
-  const sumY  = arr.reduce((s, v) => s + v, 0);
-  const sumXY = arr.reduce((s, v, i) => s + i * v, 0);
-  const denom = n * sumX2 - sumX * sumX;
-  if (Math.abs(denom) < 1e-10) return 0;
-  const slope = (n * sumXY - sumX * sumY) / denom;
-  const intercept = (sumY - slope * sumX) / n;
-  const rss = arr.reduce((s, v, i) => { const r = v - (slope * i + intercept); return s + r * r; }, 0);
-  return Math.sqrt(rss / n);
+// Gaussian smooth an array (skips emptyVal entries)
+function gaussianSmoothArr(arr, emptyVal, sigma) {
+  const kr = Math.ceil(3 * sigma);
+  return arr.map((_, i) => {
+    let sum = 0, w = 0;
+    for (let j = Math.max(0, i - kr); j <= Math.min(arr.length - 1, i + kr); j++) {
+      if (arr[j] === emptyVal) continue;
+      const wt = Math.exp(-0.5 * ((j - i) / sigma) ** 2);
+      sum += arr[j] * wt; w += wt;
+    }
+    return w > 0 ? sum / w : emptyVal;
+  });
+}
+
+// Max perpendicular deviation of arr values from the straight baseline (first→last)
+function maxDeviationFromBaseline(arr, emptyVal) {
+  const valid = arr.map((v, i) => ({ v, i })).filter(({ v }) => v !== emptyVal);
+  if (valid.length < 2) return 0;
+  const { i: i0, v: v0 } = valid[0];
+  const { i: i1, v: v1 } = valid[valid.length - 1];
+  const dx = i1 - i0, dy = v1 - v0;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len < 1e-6) return Math.max(...valid.map(({ v }) => Math.abs(v - v0)));
+  return Math.max(...valid.map(({ v, i }) => Math.abs((i - i0) * dy - (v - v0) * dx) / len));
 }
 
 function extractBladeEdgeCurve() {
@@ -1412,7 +1423,7 @@ function extractBladeEdgeCurve() {
   const range = maxX - minX;
   if (range < 1) return null;
 
-  // Coarse 50-bin profile to locate junction (same as estimateBladeLength)
+  // 50-bin coarse profile to locate junction/tip (same as estimateBladeLength)
   const BINS = 50;
   const coarseBin = range / BINS;
   const coarseMinY = new Array(BINS).fill(Infinity);
@@ -1423,12 +1434,12 @@ function extractBladeEdgeCurve() {
     if (p.y > coarseMaxY[b]) coarseMaxY[b] = p.y;
   });
   const widths = coarseMinY.map((mn, i) => mn === Infinity ? 0 : coarseMaxY[i] - mn);
-  const smoothed = widths.map((_, i) => {
+  const wSmoothed = widths.map((_, i) => {
     const s = Math.max(0, i - 1), e = Math.min(BINS - 1, i + 1);
     const vals = widths.slice(s, e + 1).filter(v => v > 0);
     return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
   });
-  const maxBin  = smoothed.indexOf(Math.max(...smoothed));
+  const maxBin  = wSmoothed.indexOf(Math.max(...wSmoothed));
   const tipSide = maxBin >= BINS / 2 ? 'left' : 'right';
   const juncX_rot = minX + maxBin * coarseBin;
   const tipX_rot  = tipSide === 'left' ? minX : maxX;
@@ -1438,64 +1449,67 @@ function extractBladeEdgeCurve() {
   const bladeRange = bladeMaxX - bladeMinX;
   if (bladeRange < 1) return null;
 
-  // Fine bins at 0.1 mm resolution
-  const stepPx = Math.max(1, 0.1 * ppm);
-  const nSteps  = Math.max(1, Math.ceil(bladeRange / stepPx));
-  const actualStep = bladeRange / nSteps;
-
-  const fineMinY = new Array(nSteps).fill(Infinity);
-  const fineMaxY = new Array(nSteps).fill(-Infinity);
+  // Aggregate into medium bins (~3px each) — dense enough to always capture both edges
+  const binPx = Math.max(3, Math.round(bladeRange / 200));
+  const nBins  = Math.ceil(bladeRange / binPx);
+  const medMinY = new Array(nBins).fill(Infinity);
+  const medMaxY = new Array(nBins).fill(-Infinity);
   rotPts.forEach(p => {
-    if (p.x < bladeMinX - actualStep || p.x > bladeMaxX + actualStep) return;
-    const b = Math.max(0, Math.min(nSteps - 1, Math.floor((p.x - bladeMinX) / actualStep)));
-    if (p.y < fineMinY[b]) fineMinY[b] = p.y;
-    if (p.y > fineMaxY[b]) fineMaxY[b] = p.y;
+    if (p.x < bladeMinX - binPx || p.x > bladeMaxX + binPx) return;
+    const b = Math.max(0, Math.min(nBins - 1, Math.floor((p.x - bladeMinX) / binPx)));
+    if (p.y < medMinY[b]) medMinY[b] = p.y;
+    if (p.y > medMaxY[b]) medMaxY[b] = p.y;
   });
 
-  // Fill gaps by forward then backward propagation
-  const fillGaps = (arr, empty) => {
+  // Fill remaining gaps by propagation
+  const fillArr = (arr, empty) => {
     let last = null;
     for (let i = 0; i < arr.length; i++) {
-      if (arr[i] !== empty) last = arr[i];
-      else if (last !== null) arr[i] = last;
+      if (arr[i] !== empty) last = arr[i]; else if (last !== null) arr[i] = last;
     }
     last = null;
     for (let i = arr.length - 1; i >= 0; i--) {
-      if (arr[i] !== empty) last = arr[i];
-      else if (last !== null) arr[i] = last;
+      if (arr[i] !== empty) last = arr[i]; else if (last !== null) arr[i] = last;
     }
   };
-  fillGaps(fineMinY, Infinity);
-  fillGaps(fineMaxY, -Infinity);
+  fillArr(medMinY, Infinity);
+  fillArr(medMaxY, -Infinity);
 
-  // Determine blade edge: side with higher RMS residual from linear fit = more curved
-  const validMin = fineMinY.filter(v => v !== Infinity);
-  const validMax = fineMaxY.filter(v => v !== -Infinity);
-  const rmsMin = linearRmsResidual(validMin);
-  const rmsMax = linearRmsResidual(validMax);
-  const bladeEdge = rmsMin > rmsMax ? fineMinY : fineMaxY;
-  const emptyVal  = rmsMin > rmsMax ? Infinity : -Infinity;
+  // Gaussian smoothing: sigma = 4% of bin count (eliminates jagged noise)
+  const sigma = Math.max(3, Math.round(nBins * 0.04));
+  const smMinY = gaussianSmoothArr(medMinY, Infinity,   sigma);
+  const smMaxY = gaussianSmoothArr(medMaxY, -Infinity,  sigma);
 
-  // Y at junction bin as offset reference (y=0 at blade heel)
-  const juncBinIdx = Math.max(0, Math.min(nSteps - 1,
-    Math.floor((juncX_rot - bladeMinX) / actualStep)));
-  const juncY = bladeEdge[juncBinIdx] !== emptyVal ? bladeEdge[juncBinIdx] : 0;
+  // Blade edge = side whose smooth curve deviates MORE from a straight baseline
+  // (the belly of the blade curves outward; the spine stays roughly straight)
+  const devMin = maxDeviationFromBaseline(smMinY, Infinity);
+  const devMax = maxDeviationFromBaseline(smMaxY, -Infinity);
+  const bladeArr = devMax >= devMin ? smMaxY : smMinY;
+  const emptyVal = devMax >= devMin ? -Infinity : Infinity;
 
+  // Y at heel (junction) as y=0 reference for CSV
+  const heelBin = Math.max(0, Math.min(nBins - 1, Math.round((juncX_rot - bladeMinX) / binPx)));
+  const heelY   = bladeArr[heelBin] !== emptyVal ? bladeArr[heelBin] : 0;
+
+  // Resample at exactly 0.1mm intervals using linear interpolation
+  const stepPx = 0.1 * ppm;
   const pts = [];
-  for (let i = 0; i < nSteps; i++) {
-    const yRot = bladeEdge[i];
-    if (yRot === emptyVal) continue;
-    const xRot = bladeMinX + (i + 0.5) * actualStep;
+  for (let xOff = 0; xOff <= bladeRange; xOff += stepPx) {
+    const fracBin = xOff / binPx;
+    const b0 = Math.min(Math.floor(fracBin), nBins - 1);
+    const b1 = Math.min(b0 + 1, nBins - 1);
+    const t  = fracBin - Math.floor(fracBin);
+    const v0 = bladeArr[b0], v1 = bladeArr[b1];
+    if (v0 === emptyVal || v1 === emptyVal) continue;
+    const yRot = v0 * (1 - t) + v1 * t;
+    const xRot = bladeMinX + xOff;
 
-    // x in mm: 0 at heel, increasing toward tip
     const distPx = tipSide === 'left' ? (juncX_rot - xRot) : (xRot - juncX_rot);
     const xMm = distPx / ppm;
-    const yMm = (yRot - juncY) / ppm;
+    const yMm = (yRot - heelY) / ppm;
 
-    // Inverse-rotate to image coordinates
     const imgX = cosA * xRot - sinA * yRot + cx;
     const imgY = sinA * xRot + cosA * yRot + cy;
-
     pts.push({ xMm, yMm, imgX, imgY });
   }
 
@@ -1503,15 +1517,29 @@ function extractBladeEdgeCurve() {
 }
 
 function drawBladeEdgeCurve(pts) {
+  if (pts.length < 2) return;
   const ctx = elems.annotatedCanvas.getContext('2d');
   ctx.save();
-  ctx.fillStyle = '#00ffff';
+  ctx.strokeStyle = '#00ffff';
+  ctx.lineWidth = 3;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
   ctx.shadowColor = '#00ffff';
-  ctx.shadowBlur = 4;
-  pts.forEach(p => {
-    ctx.beginPath();
-    ctx.arc(p.imgX, p.imgY, 3, 0, Math.PI * 2);
-    ctx.fill();
+  ctx.shadowBlur = 8;
+  ctx.beginPath();
+  ctx.moveTo(pts[0].imgX, pts[0].imgY);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].imgX, pts[i].imgY);
+  ctx.stroke();
+  // 5mm ごとにドットマーカー
+  const dotStep = Math.round(5 / 0.1);
+  ctx.fillStyle = '#00ffff';
+  ctx.shadowBlur = 0;
+  pts.forEach((p, i) => {
+    if (i % dotStep === 0) {
+      ctx.beginPath();
+      ctx.arc(p.imgX, p.imgY, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
   });
   ctx.restore();
 }
