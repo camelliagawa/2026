@@ -1599,7 +1599,8 @@ fetch('version.json')
   .then(r => r.json())
   .then(v => {
     if (elems.versionInfo) {
-      elems.versionInfo.textContent = `v${v.version}  ${v.date}`;
+      const note = v.note ? `  ${v.note}` : '';
+      elems.versionInfo.textContent = `v${v.version}${note}  ${v.date}`;
     }
   })
   .catch(() => {});
