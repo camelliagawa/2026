@@ -112,6 +112,11 @@
         <div id="result-image-box" class="panel-box hidden">
           <h2>検出画像</h2>
           <canvas id="annotated-canvas"></canvas>
+          <div class="calib-card-row">
+            <button id="btn-calib-from-card" class="btn btn-secondary btn-sm">📐 カードの長辺で校正</button>
+            <span id="calib-tap-hint" class="calib-tap-hint hidden">長辺の両端を2点タップ →</span>
+            <button id="btn-cancel-calib-tap" class="btn btn-danger btn-sm hidden">キャンセル</button>
+          </div>
         </div>
 
         <div class="panel-box">
