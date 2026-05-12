@@ -594,6 +594,30 @@ select:focus, input:focus {
   display: none;
 }
 
+/* ======= Card Calibration Row ======= */
+.calib-card-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.calib-tap-hint {
+  color: #ffff00;
+  font-size: 0.85rem;
+  font-weight: bold;
+}
+
+#annotated-canvas {
+  cursor: default;
+}
+
+#annotated-canvas.tap-mode {
+  cursor: crosshair;
+  outline: 2px solid #ffff00;
+}
+
 /* ======= Advanced Settings (details/summary) ======= */
 .advanced-settings {
   background: #0f3460;

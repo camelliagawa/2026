@@ -16,6 +16,12 @@ const state = {
   autoCalibRunning: false,
   animFrameId: null,
   pendingResult: null,
+  calTapMode: false,
+  calTapPts: [],
+  lastCanvas: null,
+  lastRectPts: null,
+  lastBladeResult: null,
+  lastKnifeMetrics: null,
   params: {
     cannyLow: 50,
     cannyHigh: 150,
@@ -65,6 +71,9 @@ const elems = {
   opencvStatus:       $('opencv-status'),
   annotatedCanvas:    $('annotated-canvas'),
   resultImageBox:     $('result-image-box'),
+  btnCalibFromCard:   $('btn-calib-from-card'),
+  calibTapHint:       $('calib-tap-hint'),
+  btnCancelCalibTap:  $('btn-cancel-calib-tap'),
   historyBody:        $('history-body'),
   btnClearHistory:    $('btn-clear-history'),
   btnExportCsv:       $('btn-export-csv'),
@@ -323,6 +332,8 @@ function analyzeImage(canvas) {
     return;
   }
   log('画像解析開始', 'info');
+
+  state.lastCanvas = canvas;
 
   // 撮影画像をプレビューに表示
   elems.processedCanvas.width  = canvas.width;
@@ -708,6 +719,10 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
 
       const bbox = cv.boundingRect(bestContour);
 
+      state.lastRectPts = rectPts;
+      state.lastBladeResult = bladeResult;
+      state.lastKnifeMetrics = { bladeOnlyPx, totalLengthPx, bladeWidthPx, bbox, angle: angleRaw };
+
       updateResults({
         status: '包丁検出',
         bladeOnlyPx,   bladeOnlyMm,
@@ -1004,6 +1019,93 @@ function updateResults({ status, bladeOnlyPx, bladeOnlyMm, totalLengthPx, totalL
 
 function updateStatus(text) {
   elems.resStatus.textContent = text;
+}
+
+// =====================================================================
+// カード手動校正（2点タップ）
+// =====================================================================
+function annotatedCanvasCoords(e) {
+  const rect = elems.annotatedCanvas.getBoundingClientRect();
+  const scaleX = elems.annotatedCanvas.width / rect.width;
+  const scaleY = elems.annotatedCanvas.height / rect.height;
+  const src = e.changedTouches ? e.changedTouches[0] : (e.touches ? e.touches[0] : e);
+  return {
+    x: (src.clientX - rect.left) * scaleX,
+    y: (src.clientY - rect.top) * scaleY,
+  };
+}
+
+elems.btnCalibFromCard.addEventListener('click', () => {
+  state.calTapMode = true;
+  state.calTapPts = [];
+  elems.btnCalibFromCard.classList.add('hidden');
+  elems.calibTapHint.classList.remove('hidden');
+  elems.btnCancelCalibTap.classList.remove('hidden');
+  elems.annotatedCanvas.classList.add('tap-mode');
+  log('カードの長辺の両端を2点タップしてください（85.6mm）', 'info');
+});
+
+elems.btnCancelCalibTap.addEventListener('click', exitCalibTapMode);
+
+function exitCalibTapMode() {
+  state.calTapMode = false;
+  state.calTapPts = [];
+  elems.btnCalibFromCard.classList.remove('hidden');
+  elems.calibTapHint.classList.add('hidden');
+  elems.btnCancelCalibTap.classList.add('hidden');
+  elems.annotatedCanvas.classList.remove('tap-mode');
+}
+
+elems.annotatedCanvas.addEventListener('click', onAnnotatedCanvasClick);
+elems.annotatedCanvas.addEventListener('touchend', (e) => {
+  if (!state.calTapMode) return;
+  e.preventDefault();
+  onAnnotatedCanvasClick(e);
+}, { passive: false });
+
+function onAnnotatedCanvasClick(e) {
+  if (!state.calTapMode) return;
+  const pt = annotatedCanvasCoords(e);
+  state.calTapPts.push(pt);
+
+  // 1点目: マーカー描画
+  const ctx = elems.annotatedCanvas.getContext('2d');
+  ctx.beginPath();
+  ctx.arc(pt.x, pt.y, 10, 0, Math.PI * 2);
+  ctx.fillStyle = state.calTapPts.length === 1 ? '#ffff00' : '#00e87a';
+  ctx.fill();
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  if (state.calTapPts.length >= 2) {
+    const [p1, p2] = state.calTapPts;
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const distPx = Math.sqrt(dx * dx + dy * dy);
+    state.calibPixelsPerMm = distPx / 85.6;
+    log(`手動校正完了: ${state.calibPixelsPerMm.toFixed(2)} px/mm（${distPx.toFixed(0)} px = 85.6 mm）`, 'info');
+    elems.calibStatus.textContent = `手動校正: ${state.calibPixelsPerMm.toFixed(2)} px/mm`;
+    elems.resCalib.textContent = state.calibPixelsPerMm.toFixed(2);
+    exitCalibTapMode();
+    applyCalibration();
+  }
+}
+
+function applyCalibration() {
+  const ppm = state.calibPixelsPerMm;
+  if (!ppm || !state.lastKnifeMetrics) return;
+  const { bladeOnlyPx, totalLengthPx, bladeWidthPx, bbox, angle } = state.lastKnifeMetrics;
+  updateResults({
+    status: '包丁検出',
+    bladeOnlyPx,  bladeOnlyMm:   bladeOnlyPx / ppm,
+    totalLengthPx, totalLengthMm: totalLengthPx / ppm,
+    bladeWidthPx, bladeWidthMm:  bladeWidthPx / ppm,
+    bbox, angle,
+  });
+  if (state.lastCanvas && state.lastRectPts && state.lastBladeResult) {
+    drawAnnotatedResult(state.lastCanvas, state.lastRectPts, state.lastBladeResult, ppm);
+  }
 }
 
 // =====================================================================
