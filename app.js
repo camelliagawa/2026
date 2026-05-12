@@ -332,6 +332,18 @@ function analyzeImage(canvas) {
   elems.processedCanvas.height = canvas.height;
   elems.processedCanvas.getContext('2d').drawImage(canvas, 0, 0);
 
+  // 読み込んだ画像を結果エリアに即座に表示（検出失敗時も画像が見えるように）
+  const ac = elems.annotatedCanvas;
+  ac.width  = canvas.width;
+  ac.height = canvas.height;
+  ac.getContext('2d').drawImage(canvas, 0, 0);
+  elems.resultImageBox.classList.remove('hidden');
+  // モバイルでは結果タブに切り替えて画像を見えるようにする
+  const resultTabBtn = document.querySelector('.tab-btn[data-tab="result"]');
+  if (resultTabBtn && window.getComputedStyle(document.getElementById('tab-nav')).display !== 'none') {
+    resultTabBtn.click();
+  }
+
   // Step 1: クレジットカード/コインを検出してスケール自動校正
   const calRef = detectReferenceObject(canvas);
   if (calRef) {
@@ -348,7 +360,7 @@ function analyzeImage(canvas) {
   detectKnifeOnCanvas(canvas, true);
 
   // Step 3: 検出結果画像にカード枠を描画
-  if (calRef && !elems.resultImageBox.classList.contains('hidden')) {
+  if (calRef) {
     drawCalibRefOverlay(elems.annotatedCanvas.getContext('2d'), calRef);
   }
 }
