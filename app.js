@@ -962,24 +962,13 @@ function estimateBladeLength(contour, rect) {
   const maxWidth = Math.max(...smoothed);
   if (maxWidth < 1) return null;
 
-  // 幅が最大幅の60%を超える箇所を「柄」とみなす閾値
-  const threshold = maxWidth * 0.60;
-
   // 最大幅ビンの位置で刃先側を判定する
-  // 刃元（刃と柄の境界に近い刃側）が最も幅広いため、刃先は最大幅ビンの反対側にある
+  // 包丁は刃先（細）→刃元（最大幅）→柄 の順に幅が変化するため、最大幅位置が刃渡りの終端
   const maxBin = smoothed.indexOf(Math.max(...smoothed));
   const tipSide = maxBin >= BINS / 2 ? 'left' : 'right';
 
-  // 刃先から柄に向かって走査し、閾値を超えた点を刃元（境界）とする
-  let junctionBin;
-  if (tipSide === 'left') {
-    junctionBin = smoothed.findIndex((w, i) => i > 2 && w > threshold);
-    if (junctionBin < 0) junctionBin = BINS - 1;
-  } else {
-    const rev = [...smoothed].reverse();
-    const idx  = rev.findIndex((w, i) => i > 2 && w > threshold);
-    junctionBin = idx >= 0 ? BINS - 1 - idx : 0;
-  }
+  // 最大幅ビンを刃元（刃渡りの境界）とする
+  const junctionBin = maxBin;
 
   const tipBin  = tipSide === 'left' ? 0 : BINS - 1;
   const lengthPx = Math.abs(junctionBin - tipBin) * binSize;
