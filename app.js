@@ -381,14 +381,39 @@ function drawCalibRefOverlay(ctx, found) {
   ctx.shadowBlur = 8;
 
   if (found.type === 'card' && found.pts) {
+    // カード輪郭（破線）
+    ctx.setLineDash([6, 4]);
+    ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(found.pts[0].x, found.pts[0].y);
     for (let i = 1; i < 4; i++) ctx.lineTo(found.pts[i].x, found.pts[i].y);
     ctx.closePath();
     ctx.stroke();
+    ctx.setLineDash([]);
+    // 長辺を太線で強調
+    if (found.longEdgePts) {
+      ctx.lineWidth = 4;
+      ctx.shadowBlur = 10;
+      ctx.beginPath();
+      ctx.moveTo(found.longEdgePts[0].x, found.longEdgePts[0].y);
+      ctx.lineTo(found.longEdgePts[1].x, found.longEdgePts[1].y);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      // 端点マーカー
+      [found.longEdgePts[0], found.longEdgePts[1]].forEach(p => {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 7, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffff00';
+        ctx.fill();
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      });
+    }
     ctx.shadowBlur = 0;
-    drawCalibLabel(ctx, `クレジットカード ✓  ${found.pixelsPerMm.toFixed(2)} px/mm`,
-      found.pts[0].x, found.pts[0].y - 6);
+    const labelPt = found.longEdgePts ? found.longEdgePts[0] : found.pts[0];
+    drawCalibLabel(ctx, `カード長辺 85.6mm ✓  ${found.pixelsPerMm.toFixed(2)} px/mm`,
+      labelPt.x, labelPt.y - 10);
   } else if (found.type === 'coin') {
     ctx.beginPath();
     ctx.arc(found.center.x, found.center.y, found.radiusPx, 0, Math.PI * 2);
@@ -404,7 +429,8 @@ function drawCalibLabel(ctx, text, x, y) {
   ctx.font = 'bold 14px sans-serif';
   ctx.textBaseline = 'bottom';
   const tw = ctx.measureText(text).width;
-  x = Math.max(4, Math.min(x, elems.overlayCanvas.width - tw - 8));
+  const canvasW = ctx.canvas ? ctx.canvas.width : elems.overlayCanvas.width;
+  x = Math.max(4, Math.min(x, canvasW - tw - 8));
   y = Math.max(20, y);
   ctx.fillStyle = 'rgba(0,0,0,0.65)';
   ctx.fillRect(x - 3, y - 17, tw + 6, 19);
@@ -425,7 +451,7 @@ function detectReferenceObject(tmpCanvas) {
 
     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
     cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
-    cv.Canny(blurred, edges, 30, 100);
+    cv.Canny(blurred, edges, 20, 80);
 
     const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(3, 3));
     cv.dilate(edges, edges, kernel);
@@ -437,55 +463,71 @@ function detectReferenceObject(tmpCanvas) {
     let bestCard = null;
     let bestCoin = null;
 
-    for (let i = 0; i < contours.size(); i++) {
-      const cnt = contours.get(i);
-      const area = cv.contourArea(cnt);
+    // カード検出を2パスで試みる：1パス目は標準、2パス目はより緩い条件
+    const passes = [
+      { minArea: 0.001, maxArea: 0.85, aspectMin: 1.2, aspectMax: 2.1, maxCorners: 10 },
+      { minArea: 0.0003, maxArea: 0.90, aspectMin: 1.0, aspectMax: 2.8, maxCorners: 14 },
+    ];
 
-      if (area < imgArea * 0.005 || area > imgArea * 0.85) { cnt.delete(); continue; }
+    outer: for (const pass of passes) {
+      for (let i = 0; i < contours.size(); i++) {
+        const cnt = contours.get(i);
+        const area = cv.contourArea(cnt);
 
-      const peri = cv.arcLength(cnt, true);
-      if (peri < 20) { cnt.delete(); continue; }
+        if (area < imgArea * pass.minArea || area > imgArea * pass.maxArea) { cnt.delete(); continue; }
 
-      const circularity = 4 * Math.PI * area / (peri * peri);
-      const rect = cv.minAreaRect(cnt);
-      const rw = Math.max(rect.size.width, rect.size.height);
-      const rh = Math.min(rect.size.width, rect.size.height);
-      if (rh < 10) { cnt.delete(); continue; }
-      const aspect = rw / rh;
+        const peri = cv.arcLength(cnt, true);
+        if (peri < 20) { cnt.delete(); continue; }
 
-      // クレジットカード: アスペクト比 ~1.586 (85.6mm / 54mm)、矩形
-      if (aspect >= 1.35 && aspect <= 1.85 && circularity < 0.75) {
-        const approx = new cv.Mat();
-        cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
-        const corners = approx.rows;
-        approx.delete();
-        if (corners >= 4 && corners <= 7) {
-          if (!bestCard || area > bestCard.area) {
-            bestCard = {
-              type: 'card',
+        const circularity = 4 * Math.PI * area / (peri * peri);
+        const rect = cv.minAreaRect(cnt);
+        const rw = Math.max(rect.size.width, rect.size.height);
+        const rh = Math.min(rect.size.width, rect.size.height);
+        if (rh < 8) { cnt.delete(); continue; }
+        const aspect = rw / rh;
+
+        // クレジットカード: アスペクト比 ~1.586 (85.6mm / 54mm)、矩形
+        if (aspect >= pass.aspectMin && aspect <= pass.aspectMax && circularity < 0.78) {
+          const approx = new cv.Mat();
+          cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
+          const corners = approx.rows;
+          approx.delete();
+          if (corners >= 4 && corners <= pass.maxCorners) {
+            const pts = cv.RotatedRect.points(rect);
+            // 長辺の両端点を特定（隣接する辺のうち長い方）
+            const d01 = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+            const d12 = Math.hypot(pts[2].x - pts[1].x, pts[2].y - pts[1].y);
+            const longEdgePts = d01 >= d12 ? [pts[0], pts[1]] : [pts[1], pts[2]];
+            if (!bestCard || area > bestCard.area) {
+              bestCard = {
+                type: 'card',
+                area,
+                pixelsPerMm: rw / 85.6,
+                pts,
+                longEdgePts,
+              };
+            }
+          }
+        }
+
+        // 500円硬貨: 高い真円度 (>0.72)、アスペクト比ほぼ1
+        if (circularity > 0.72 && aspect < 1.3) {
+          const radiusPx = Math.sqrt(area / Math.PI);
+          if (!bestCoin || area > bestCoin.area) {
+            bestCoin = {
+              type: 'coin',
               area,
-              pixelsPerMm: rw / 85.6,
-              pts: cv.RotatedRect.points(rect),
+              pixelsPerMm: (radiusPx * 2) / 26.5,
+              radiusPx,
+              center: { x: rect.center.x, y: rect.center.y },
             };
           }
         }
-      }
 
-      // 500円硬貨: 高い真円度 (>0.72)、アスペクト比ほぼ1
-      if (circularity > 0.72 && aspect < 1.3) {
-        const radiusPx = Math.sqrt(area / Math.PI);
-        if (!bestCoin || area > bestCoin.area) {
-          bestCoin = {
-            type: 'coin',
-            area,
-            pixelsPerMm: (radiusPx * 2) / 26.5,
-            radiusPx,
-            center: { x: rect.center.x, y: rect.center.y },
-          };
-        }
+        cnt.delete();
       }
-
-      cnt.delete();
+      // 1パス目でカードが見つかれば2パス目は不要
+      if (bestCard) break outer;
     }
 
     return bestCard || bestCoin || null;
