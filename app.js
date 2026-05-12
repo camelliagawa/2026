@@ -84,6 +84,7 @@ const elems = {
   cardDetectFailed:   $('card-detect-failed'),
   btnRetryRoi:        $('btn-retry-roi'),
   btnBladeCurve:      $('btn-blade-curve'),
+  bladeCurveStatus:   $('blade-curve-status'),
   versionInfo:        $('version-info'),
   historyBody:        $('history-body'),
   btnClearHistory:    $('btn-clear-history'),
@@ -343,6 +344,7 @@ function analyzeImage(canvas) {
     return;
   }
   log('画像解析開始', 'info');
+  if (elems.bladeCurveStatus) elems.bladeCurveStatus.classList.add('hidden');
 
   state.lastCanvas = canvas;
 
@@ -1519,13 +1521,18 @@ function extractBladeEdgeCurve() {
 function drawBladeEdgeCurve(pts) {
   if (pts.length < 2) return;
   const ctx = elems.annotatedCanvas.getContext('2d');
+  // 高解像度写真でも見えるよう画像サイズに合わせてスケール
+  const scale = Math.max(elems.annotatedCanvas.width, elems.annotatedCanvas.height) / 1000;
+  const lw   = Math.max(3, Math.round(4 * scale));
+  const mr   = Math.max(6, Math.round(8 * scale));
+  const blur = Math.max(8, Math.round(12 * scale));
   ctx.save();
   ctx.strokeStyle = '#00ffff';
-  ctx.lineWidth = 3;
+  ctx.lineWidth = lw;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
   ctx.shadowColor = '#00ffff';
-  ctx.shadowBlur = 8;
+  ctx.shadowBlur = blur;
   ctx.beginPath();
   ctx.moveTo(pts[0].imgX, pts[0].imgY);
   for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].imgX, pts[i].imgY);
@@ -1537,7 +1544,7 @@ function drawBladeEdgeCurve(pts) {
   pts.forEach((p, i) => {
     if (i % dotStep === 0) {
       ctx.beginPath();
-      ctx.arc(p.imgX, p.imgY, 5, 0, Math.PI * 2);
+      ctx.arc(p.imgX, p.imgY, mr, 0, Math.PI * 2);
       ctx.fill();
     }
   });
@@ -1561,10 +1568,19 @@ elems.btnBladeCurve.addEventListener('click', () => {
   const pts = extractBladeEdgeCurve();
   if (!pts || pts.length === 0) {
     log('刃渡り曲線を抽出できませんでした', 'warn');
+    if (elems.bladeCurveStatus) {
+      elems.bladeCurveStatus.textContent = '⚠ 抽出失敗';
+      elems.bladeCurveStatus.classList.remove('hidden');
+    }
     return;
   }
   drawBladeEdgeCurve(pts);
   exportBladeEdgeCsv(pts);
+  if (elems.bladeCurveStatus) {
+    elems.bladeCurveStatus.textContent = `✓ 刃渡り曲線描画済み (${pts.length}点)`;
+    elems.bladeCurveStatus.classList.remove('hidden');
+  }
+  log(`刃渡り曲線描画: ${pts.length}点`, 'detect');
 });
 
 // =====================================================================
@@ -1605,6 +1621,7 @@ elems.btnReset.addEventListener('click', () => {
     0, 0, elems.processedCanvas.width, elems.processedCanvas.height
   );
   elems.resultImageBox.classList.add('hidden');
+  if (elems.bladeCurveStatus) elems.bladeCurveStatus.classList.add('hidden');
   updateBladeCurveBtn();
   log('全設定をリセット', 'warn');
 });
