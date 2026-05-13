@@ -1038,8 +1038,8 @@ function estimateBladeLength(contour, rect) {
   const maxBin = smoothed.indexOf(Math.max(...smoothed));
   const tipSide = maxBin >= BINS / 2 ? 'left' : 'right';
 
-  // 最大幅ビンを刃元（刃渡りの境界）とする
-  const junctionBin = maxBin;
+  // 幅が最大の40%に達する最初のビン = アゴ（柄→刃の移行点）
+  const junctionBin = detectJuncBin(smoothed, maxBin, tipSide, BINS);
 
   const tipBin  = tipSide === 'left' ? 0 : BINS - 1;
   const lengthPx = Math.abs(junctionBin - tipBin) * binSize;
@@ -1396,6 +1396,21 @@ function autoDrawBladeCurve() {
   log(`刃渡り曲線描画: ${bladeDotCount(pts)}点`, 'detect');
 }
 
+// Find the blade-tang junction bin more accurately than just maxBin.
+// Scans from the handle side and returns the first bin where smoothed width
+// reaches 40% of the peak — this corresponds to the アゴ (blade start).
+function detectJuncBin(wSmoothed, maxBin, tipSide, BINS) {
+  const maxW = wSmoothed.reduce((a, b) => Math.max(a, b), 0);
+  if (maxW === 0) return maxBin;
+  const thr = maxW * 0.40;
+  if (tipSide === 'right') {
+    for (let i = 0; i <= maxBin; i++) if (wSmoothed[i] >= thr) return i;
+  } else {
+    for (let i = BINS - 1; i >= maxBin; i--) if (wSmoothed[i] >= thr) return i;
+  }
+  return maxBin;
+}
+
 // Gaussian smooth an array (skips emptyVal entries)
 function gaussianSmoothArr(arr, emptyVal, sigma) {
   const kr = Math.ceil(3 * sigma);
@@ -1450,9 +1465,8 @@ function extractBladeEdgeCurve() {
   });
   const maxBin  = wSmoothed.indexOf(Math.max(...wSmoothed));
   const tipSide = maxBin >= BINS / 2 ? 'left' : 'right';
-  const juncX_rot = tipSide === 'right'
-    ? minX + (maxBin + 1) * coarseBin   // アゴ = 最広ビンの刃側（右）端
-    : minX + maxBin * coarseBin;         // アゴ = 最広ビンの刃側（左）端
+  const juncBin   = detectJuncBin(wSmoothed, maxBin, tipSide, BINS);
+  const juncX_rot = minX + juncBin * coarseBin;
   const tipX_rot  = tipSide === 'left' ? minX : maxX;
 
   const bladeMinX = Math.min(juncX_rot, tipX_rot);
