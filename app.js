@@ -26,6 +26,8 @@ const state = {
   lastKnifeMetrics: null,
   lastContourPts: null,
   lastRect: null,
+  lastBladeCurvePts: null,
+  preCurveImageData: null,
   params: {
     cannyLow: 50,
     cannyHigh: 150,
@@ -1385,6 +1387,9 @@ function autoDrawBladeCurve() {
   if (!state.calibPixelsPerMm || !state.lastContourPts) return;
   const pts = extractBladeEdgeCurve();
   if (!pts || pts.length === 0) return;
+  const ac = elems.annotatedCanvas;
+  state.preCurveImageData = ac.getContext('2d').getImageData(0, 0, ac.width, ac.height);
+  state.lastBladeCurvePts = pts;
   drawBladeEdgeCurve(pts);
   if (elems.bladeCurveStatus) {
     elems.bladeCurveStatus.textContent = `✓ 刃渡り曲線描画済み (${pts.length}点)`;
@@ -1559,7 +1564,7 @@ function drawBladeEdgeCurve(pts) {
   // 高解像度写真でも見えるよう画像サイズに合わせてスケール
   const scale = Math.max(elems.annotatedCanvas.width, elems.annotatedCanvas.height) / 1000;
   const lw   = Math.max(3, Math.round(4 * scale));
-  const mr   = Math.max(6, Math.round(8 * scale));
+  const mr   = Math.max(4, Math.round(5 * scale));
   const blur = Math.max(8, Math.round(12 * scale));
   ctx.save();
   ctx.strokeStyle = '#00ffff';
@@ -1577,7 +1582,7 @@ function drawBladeEdgeCurve(pts) {
   ctx.fillStyle = '#00ffff';
   ctx.shadowBlur = 0;
   pts.forEach((p, i) => {
-    if (i > 0 && i % dotStep === 0) {
+    if (i % dotStep === 0) {
       ctx.beginPath();
       ctx.arc(p.imgX, p.imgY, mr, 0, Math.PI * 2);
       ctx.fill();
@@ -1609,6 +1614,9 @@ elems.btnBladeCurve.addEventListener('click', () => {
     }
     return;
   }
+  const _ac = elems.annotatedCanvas;
+  state.preCurveImageData = _ac.getContext('2d').getImageData(0, 0, _ac.width, _ac.height);
+  state.lastBladeCurvePts = pts;
   drawBladeEdgeCurve(pts);
   exportBladeEdgeCsv(pts);
   if (elems.bladeCurveStatus) {
@@ -1616,6 +1624,13 @@ elems.btnBladeCurve.addEventListener('click', () => {
     elems.bladeCurveStatus.classList.remove('hidden');
   }
   log(`刃渡り曲線描画: ${pts.length}点`, 'detect');
+});
+
+elems.bladeDotInterval?.addEventListener('input', () => {
+  if (!state.lastBladeCurvePts || !state.preCurveImageData) return;
+  const ac = elems.annotatedCanvas;
+  ac.getContext('2d').putImageData(state.preCurveImageData, 0, 0);
+  drawBladeEdgeCurve(state.lastBladeCurvePts);
 });
 
 // =====================================================================
