@@ -609,6 +609,25 @@ select:focus, input:focus {
   font-weight: bold;
 }
 
+.blade-dot-label {
+  color: #aaa;
+  font-size: 0.82rem;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.blade-dot-label input[type=number] {
+  width: 4em;
+  padding: 2px 4px;
+  background: #222;
+  color: #eee;
+  border: 1px solid #555;
+  border-radius: 4px;
+  font-size: 0.9em;
+  text-align: right;
+}
+
 #annotated-canvas {
   cursor: default;
 }
