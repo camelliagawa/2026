@@ -1387,15 +1387,13 @@ function autoDrawBladeCurve() {
   if (!state.calibPixelsPerMm || !state.lastContourPts) return;
   const pts = extractBladeEdgeCurve();
   if (!pts || pts.length === 0) return;
-  const ac = elems.annotatedCanvas;
-  state.preCurveImageData = ac.getContext('2d').getImageData(0, 0, ac.width, ac.height);
   state.lastBladeCurvePts = pts;
   drawBladeEdgeCurve(pts);
   if (elems.bladeCurveStatus) {
-    elems.bladeCurveStatus.textContent = `✓ 刃渡り曲線描画済み (${pts.length}点)`;
+    elems.bladeCurveStatus.textContent = `✓ 刃渡り曲線描画済み (${bladeDotCount(pts)}点)`;
     elems.bladeCurveStatus.classList.remove('hidden');
   }
-  log(`刃渡り曲線描画: ${pts.length}点`, 'detect');
+  log(`刃渡り曲線描画: ${bladeDotCount(pts)}点`, 'detect');
 }
 
 // Gaussian smooth an array (skips emptyVal entries)
@@ -1452,7 +1450,9 @@ function extractBladeEdgeCurve() {
   });
   const maxBin  = wSmoothed.indexOf(Math.max(...wSmoothed));
   const tipSide = maxBin >= BINS / 2 ? 'left' : 'right';
-  const juncX_rot = minX + maxBin * coarseBin;
+  const juncX_rot = tipSide === 'right'
+    ? minX + (maxBin + 1) * coarseBin   // アゴ = 最広ビンの刃側（右）端
+    : minX + maxBin * coarseBin;         // アゴ = 最広ビンの刃側（左）端
   const tipX_rot  = tipSide === 'left' ? minX : maxX;
 
   const bladeMinX = Math.min(juncX_rot, tipX_rot);
@@ -1558,6 +1558,12 @@ function extractBladeEdgeCurve() {
   return pts.sort((a, b) => a.xMm - b.xMm);
 }
 
+function bladeDotCount(pts) {
+  const intervalMm = parseFloat(elems.bladeDotInterval?.value) || 1;
+  const dotStep = Math.max(1, Math.round(intervalMm / 0.1));
+  return Math.floor(pts.length / dotStep);
+}
+
 function drawBladeEdgeCurve(pts) {
   if (pts.length < 2) return;
   const ctx = elems.annotatedCanvas.getContext('2d');
@@ -1614,23 +1620,23 @@ elems.btnBladeCurve.addEventListener('click', () => {
     }
     return;
   }
-  const _ac = elems.annotatedCanvas;
-  state.preCurveImageData = _ac.getContext('2d').getImageData(0, 0, _ac.width, _ac.height);
   state.lastBladeCurvePts = pts;
   drawBladeEdgeCurve(pts);
   exportBladeEdgeCsv(pts);
   if (elems.bladeCurveStatus) {
-    elems.bladeCurveStatus.textContent = `✓ 刃渡り曲線描画済み (${pts.length}点)`;
+    elems.bladeCurveStatus.textContent = `✓ 刃渡り曲線描画済み (${bladeDotCount(pts)}点)`;
     elems.bladeCurveStatus.classList.remove('hidden');
   }
-  log(`刃渡り曲線描画: ${pts.length}点`, 'detect');
+  log(`刃渡り曲線描画: ${bladeDotCount(pts)}点`, 'detect');
 });
 
 elems.bladeDotInterval?.addEventListener('input', () => {
-  if (!state.lastBladeCurvePts || !state.preCurveImageData) return;
-  const ac = elems.annotatedCanvas;
-  ac.getContext('2d').putImageData(state.preCurveImageData, 0, 0);
+  if (!state.lastBladeCurvePts || !state.lastCanvas) return;
+  drawAnnotatedResult(state.lastCanvas, state.lastRectPts, state.lastBladeResult, state.calibPixelsPerMm);
   drawBladeEdgeCurve(state.lastBladeCurvePts);
+  if (elems.bladeCurveStatus) {
+    elems.bladeCurveStatus.textContent = `✓ 刃渡り曲線描画済み (${bladeDotCount(state.lastBladeCurvePts)}点)`;
+  }
 });
 
 // =====================================================================
