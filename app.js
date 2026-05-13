@@ -1468,20 +1468,26 @@ function extractBladeEdgeCurve() {
 
   // Fill remaining gaps by propagation
   const fillArr = (arr, empty) => {
-    let last = null;
-    for (let i = 0; i < arr.length; i++) {
-      if (arr[i] !== empty) last = arr[i]; else if (last !== null) arr[i] = last;
+    const first = arr.findIndex(v => v !== empty);
+    if (first === -1) return;
+    for (let i = 0; i < first; i++) arr[i] = arr[first];
+    let prev = first;
+    for (let i = first + 1; i < arr.length; i++) {
+      if (arr[i] !== empty) {
+        if (i - prev > 1) {
+          const a = arr[prev], b = arr[i], n = i - prev;
+          for (let j = prev + 1; j < i; j++) arr[j] = a + (b - a) * (j - prev) / n;
+        }
+        prev = i;
+      }
     }
-    last = null;
-    for (let i = arr.length - 1; i >= 0; i--) {
-      if (arr[i] !== empty) last = arr[i]; else if (last !== null) arr[i] = last;
-    }
+    for (let i = prev + 1; i < arr.length; i++) arr[i] = arr[prev];
   };
   fillArr(medMinY, Infinity);
   fillArr(medMaxY, -Infinity);
 
   // Gaussian smoothing: sigma = 4% of bin count (eliminates jagged noise)
-  const sigma = Math.max(3, Math.round(nBins * 0.04));
+  const sigma = Math.max(5, Math.round(nBins * 0.06));
   const smMinY = gaussianSmoothArr(medMinY, Infinity,   sigma);
   const smMaxY = gaussianSmoothArr(medMaxY, -Infinity,  sigma);
 
