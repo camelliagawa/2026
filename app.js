@@ -1485,27 +1485,37 @@ function extractBladeEdgeCurve() {
   const smMinY = gaussianSmoothArr(medMinY, Infinity,   sigma);
   const smMaxY = gaussianSmoothArr(medMaxY, -Infinity,  sigma);
 
-  // Blade edge identification via junction continuity:
-  // The spine transitions smoothly from blade into the handle (small step at junction).
-  // The blade edge terminates abruptly at the junction — the handle bottom is much
-  // closer to center than the blade edge was, producing a larger step.
-  const handleDir = tipSide === 'right' ? -1 : 1;
-  const hA = Math.max(0, Math.min(BINS - 1, maxBin + handleDir));
-  const hB = Math.max(0, Math.min(BINS - 1, maxBin + handleDir * 5));
-  const hFrom = Math.min(hA, hB), hTo = Math.max(hA, hB);
-  let hMinSum = 0, hMinN = 0, hMaxSum = 0, hMaxN = 0;
-  for (let b = hFrom; b <= hTo; b++) {
-    if (coarseMinY[b] !== Infinity)  { hMinSum += coarseMinY[b]; hMinN++; }
-    if (coarseMaxY[b] !== -Infinity) { hMaxSum += coarseMaxY[b]; hMaxN++; }
+  // Blade edge identification via rotated-Y pixel gradient:
+  // The knife is brighter than the background. Moving one pixel in the +rotatedY
+  // direction (perpendicular to knife axis, toward image-bottom in rotated frame):
+  //   • at blade edge (bottom): exits the knife → gradient < 0
+  //   • at spine (top):         enters the knife → gradient > 0
+  // rotatedY unit vector in image space: (-sinA, +cosA)
+  let gMinSum = 0, gMinN = 0, gMaxSum = 0, gMaxN = 0;
+  if (state.lastCanvas) {
+    const iw = state.lastCanvas.width, ih = state.lastCanvas.height;
+    const px = state.lastCanvas.getContext('2d').getImageData(0, 0, iw, ih).data;
+    const gray = (x, y) => {
+      const ix = Math.max(0, Math.min(iw - 1, Math.round(x)));
+      const iy = Math.max(0, Math.min(ih - 1, Math.round(y)));
+      const k = (iy * iw + ix) * 4;
+      return px[k] * 0.299 + px[k + 1] * 0.587 + px[k + 2] * 0.114;
+    };
+    state.lastContourPts.forEach((op, i) => {
+      const rp = rotPts[i];
+      if (rp.x < bladeMinX - binPx || rp.x > bladeMaxX + binPx) return;
+      const b = Math.max(0, Math.min(nBins - 1, Math.floor((rp.x - bladeMinX) / binPx)));
+      if (medMinY[b] === Infinity || medMaxY[b] === -Infinity) return;
+      const midY = (medMinY[b] + medMaxY[b]) * 0.5;
+      const g = gray(op.x - sinA, op.y + cosA) - gray(op.x, op.y);
+      if (rp.y < midY) { gMinSum += g; gMinN++; }
+      else             { gMaxSum += g; gMaxN++; }
+    });
   }
-  const hMeanMin = hMinN > 0 ? hMinSum / hMinN : null;
-  const hMeanMax = hMaxN > 0 ? hMaxSum / hMaxN : null;
-  const jMinY = coarseMinY[maxBin] !== Infinity  ? coarseMinY[maxBin] : null;
-  const jMaxY = coarseMaxY[maxBin] !== -Infinity ? coarseMaxY[maxBin] : null;
-  const stepMin = (jMinY !== null && hMeanMin !== null) ? Math.abs(hMeanMin - jMinY) : 0;
-  const stepMax = (jMaxY !== null && hMeanMax !== null) ? Math.abs(hMeanMax - jMaxY) : 0;
-  const bladeArr = stepMax >= stepMin ? smMaxY : smMinY;
-  const emptyVal  = stepMax >= stepMin ? -Infinity : Infinity;
+  const meanGMin = gMinN > 0 ? gMinSum / gMinN : 0;
+  const meanGMax = gMaxN > 0 ? gMaxSum / gMaxN : 0;
+  const bladeArr = meanGMax <= meanGMin ? smMaxY : smMinY;
+  const emptyVal  = meanGMax <= meanGMin ? -Infinity : Infinity;
 
   // Y at heel (junction) as y=0 reference for CSV
   const heelBin = Math.max(0, Math.min(nBins - 1, Math.round((juncX_rot - bladeMinX) / binPx)));
