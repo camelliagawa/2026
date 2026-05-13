@@ -1396,13 +1396,19 @@ function autoDrawBladeCurve() {
   log(`刃渡り曲線描画: ${bladeDotCount(pts)}点`, 'detect');
 }
 
-// Find the blade-tang junction bin more accurately than just maxBin.
-// Scans from the handle side and returns the first bin where smoothed width
-// reaches 40% of the peak — this corresponds to the アゴ (blade start).
+// Find the blade-tang junction bin (アゴ) more accurately than just maxBin.
+// Estimates the handle (tang) width from the 3 extreme handle-side bins, then
+// uses the midpoint between tang and peak width as the threshold.
+// This adapts to any tang/blade width ratio.
 function detectJuncBin(wSmoothed, maxBin, tipSide, BINS) {
-  const maxW = wSmoothed.reduce((a, b) => Math.max(a, b), 0);
+  const maxW = wSmoothed[maxBin];
   if (maxW === 0) return maxBin;
-  const thr = maxW * 0.40;
+  const nH = Math.max(1, Math.min(3, tipSide === 'right' ? maxBin : BINS - 1 - maxBin));
+  const handleSlice = tipSide === 'right'
+    ? wSmoothed.slice(0, nH)
+    : wSmoothed.slice(BINS - nH);
+  const handleW = handleSlice.reduce((a, b) => a + b, 0) / handleSlice.length;
+  const thr = handleW + 0.5 * (maxW - handleW);
   if (tipSide === 'right') {
     for (let i = 0; i <= maxBin; i++) if (wSmoothed[i] >= thr) return i;
   } else {
