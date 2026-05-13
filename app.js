@@ -85,6 +85,7 @@ const elems = {
   btnRetryRoi:        $('btn-retry-roi'),
   btnBladeCurve:      $('btn-blade-curve'),
   bladeCurveStatus:   $('blade-curve-status'),
+  bladeDotInterval:   $('blade-dot-interval'),
   versionInfo:        $('version-info'),
   historyBody:        $('history-body'),
   btnClearHistory:    $('btn-clear-history'),
@@ -1571,12 +1572,12 @@ function drawBladeEdgeCurve(pts) {
   ctx.moveTo(pts[0].imgX, pts[0].imgY);
   for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].imgX, pts[i].imgY);
   ctx.stroke();
-  // 5mm ごとにドットマーカー
-  const dotStep = Math.round(5 / 0.1);
+  const intervalMm = parseFloat(elems.bladeDotInterval?.value) || 1;
+  const dotStep = Math.max(1, Math.round(intervalMm / 0.1));
   ctx.fillStyle = '#00ffff';
   ctx.shadowBlur = 0;
   pts.forEach((p, i) => {
-    if (i % dotStep === 0) {
+    if (i > 0 && i % dotStep === 0) {
       ctx.beginPath();
       ctx.arc(p.imgX, p.imgY, mr, 0, Math.PI * 2);
       ctx.fill();
