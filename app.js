@@ -1438,19 +1438,10 @@ function detectJuncBin(wSmoothed, maxBin, tipSide, BINS) {
     }
   }
 
-  // アゴ: scan from the tang minimum toward the blade heel; return the first bin
-  // where the width crosses the midpoint between tang minimum and blade heel.
-  const thr = tangMinW + 0.5 * (bladeMaxW - tangMinW);
-  if (tipSide === 'right') {
-    for (let i = tangMinBin; i <= bladeMaxBin; i++) {
-      if (wSmoothed[i] >= thr) return i;
-    }
-  } else {
-    for (let i = tangMinBin; i >= bladeMaxBin; i--) {
-      if (wSmoothed[i] >= thr) return i;
-    }
-  }
-  return bladeMaxBin;
+  // アゴ = the tang minimum itself.
+  // The narrowest cross-section between the handle and the blade heel
+  // is the physical blade-to-handle junction (アゴ/heel).
+  return tangMinBin;
 }
 
 // Gaussian smooth an array (skips emptyVal entries)
@@ -1553,17 +1544,11 @@ function extractBladeEdgeCurve() {
   const smMinY = gaussianSmoothArr(medMinY, Infinity,   sigma);
   const smMaxY = gaussianSmoothArr(medMaxY, -Infinity,  sigma);
 
-  // Blade edge identification via geometry:
-  // The cutting edge travels more (in rotated-Y) between the tip and the heel
-  // than the spine does. This is lighting-independent and works regardless of
-  // whether the knife is brighter or darker than the background.
-  const tipB  = tipSide === 'right' ? nBins - 1 : 0;
-  const heelB = tipSide === 'right' ? 0 : nBins - 1;
-  const sm = (arr, i) => (arr[i] !== Infinity && arr[i] !== -Infinity ? arr[i] : 0);
-  const deltaMax = Math.abs(sm(smMaxY, heelB) - sm(smMaxY, tipB));
-  const deltaMin = Math.abs(sm(smMinY, heelB) - sm(smMinY, tipB));
-  const bladeArr = deltaMax >= deltaMin ? smMaxY : smMinY;
-  const emptyVal  = deltaMax >= deltaMin ? -Infinity : Infinity;
+  // Blade edge = smMaxY (lower edge in rotated frame).
+  // When a knife is photographed in normal orientation (cutting edge facing down),
+  // the cutting edge is always the lower silhouette → smMaxY.
+  const bladeArr = smMaxY;
+  const emptyVal  = -Infinity;
 
   // Y at heel (junction) as y=0 reference for CSV
   const heelBin = Math.max(0, Math.min(nBins - 1, Math.round((juncX_rot - bladeMinX) / binPx)));
