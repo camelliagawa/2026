@@ -1038,8 +1038,11 @@ function estimateBladeLength(contour, rect) {
   const maxBin = smoothed.indexOf(Math.max(...smoothed));
   const tipSide = maxBin >= BINS / 2 ? 'left' : 'right';
 
-  // 幅が最大の40%に達する最初のビン = アゴ（柄→刃の移行点）
-  const junctionBin = detectJuncBin(smoothed, maxY, maxBin, tipSide, BINS);
+  // アゴ検出: contour の直角コーナーを最優先、見つからなければ刃線勾配にフォールバック
+  let junctionBin = findCornerJuncBin(pts, smoothed, maxBin, tipSide, BINS, minX, binSize);
+  if (junctionBin < 0) {
+    junctionBin = detectJuncBin(smoothed, maxY, maxBin, tipSide, BINS);
+  }
 
   const tipBin  = tipSide === 'left' ? 0 : BINS - 1;
   const lengthPx = Math.abs(junctionBin - tipBin) * binSize;
@@ -1400,6 +1403,77 @@ function autoDrawBladeCurve() {
 // Estimates the handle (tang) width from the 3 extreme handle-side bins, then
 // uses the midpoint between tang and peak width as the threshold.
 // This adapts to any tang/blade width ratio.
+// Find アゴ by detecting the right-angle corner where the cutting edge meets
+// the handle bottom. The アゴ is a near-90° turn on the lower (cutting-edge)
+// side of the contour, located between the handle butt and the blade region.
+// Returns the bin index of the corner, or -1 if no qualifying corner is found.
+function findCornerJuncBin(rotPts, wSmoothed, maxBin, tipSide, BINS, minX, binSize) {
+  const globalMaxW = wSmoothed[maxBin];
+  if (globalMaxW === 0) return -1;
+
+  // Locate bladeMaxBin (same skip-handle-zone logic as detectJuncBin)
+  const skip = Math.round(BINS * 0.20);
+  let bladeMaxBin = maxBin, bladeMaxW = globalMaxW;
+  if (tipSide === 'right' && maxBin < skip) {
+    bladeMaxW = 0;
+    for (let i = skip; i < BINS; i++) {
+      if (wSmoothed[i] > bladeMaxW) { bladeMaxW = wSmoothed[i]; bladeMaxBin = i; }
+    }
+  } else if (tipSide === 'left' && maxBin >= BINS - skip) {
+    bladeMaxW = 0;
+    for (let i = BINS - 1 - skip; i >= 0; i--) {
+      if (wSmoothed[i] > bladeMaxW) { bladeMaxW = wSmoothed[i]; bladeMaxBin = i; }
+    }
+  }
+  if (bladeMaxW === 0) return -1;
+  const bladeMaxX = minX + bladeMaxBin * binSize;
+
+  // Identify the cutting-edge side as the lower half of rotated Y range
+  let yMin = Infinity, yMax = -Infinity;
+  for (let i = 0; i < rotPts.length; i++) {
+    const y = rotPts[i].y;
+    if (y < yMin) yMin = y;
+    if (y > yMax) yMax = y;
+  }
+  // Bias toward the lower edge: the アゴ corner sits roughly at the cutting-edge
+  // level, well below the spine/handle midline.
+  const yThr = yMin + (yMax - yMin) * 0.5;
+
+  // Walk the contour; at each point compute the turn angle from the previous
+  // segment to the next. Adjacent points are corner points (CHAIN_APPROX_SIMPLE),
+  // so segments are real edges.
+  const n = rotPts.length;
+  let bestDist = Infinity, bestBin = -1;
+  for (let i = 0; i < n; i++) {
+    const p = rotPts[i];
+    if (p.y <= yThr) continue;
+    if (tipSide === 'right' ? p.x >= bladeMaxX : p.x <= bladeMaxX) continue;
+
+    const a = rotPts[(i - 1 + n) % n];
+    const c = rotPts[(i + 1) % n];
+    const v1x = p.x - a.x, v1y = p.y - a.y;
+    const v2x = c.x - p.x, v2y = c.y - p.y;
+    const len1 = Math.hypot(v1x, v1y);
+    const len2 = Math.hypot(v2x, v2y);
+    if (len1 < 3 || len2 < 3) continue;
+
+    const dot = v1x * v2x + v1y * v2y;
+    const cross = v1x * v2y - v1y * v2x;
+    const turnDeg = Math.atan2(Math.abs(cross), dot) * 180 / Math.PI;
+    if (turnDeg < 50 || turnDeg > 130) continue;
+
+    // Among qualifying corners, pick the one closest to bladeMaxX (= the one
+    // farthest into the blade region while still on the handle side).
+    const distToBlade = tipSide === 'right' ? (bladeMaxX - p.x) : (p.x - bladeMaxX);
+    if (distToBlade >= 0 && distToBlade < bestDist) {
+      bestDist = distToBlade;
+      bestBin = Math.min(BINS - 1, Math.max(0, Math.floor((p.x - minX) / binSize)));
+    }
+  }
+
+  return bestBin;
+}
+
 function detectJuncBin(wSmoothed, bottomEdge, maxBin, tipSide, BINS) {
   const globalMaxW = wSmoothed[maxBin];
   if (globalMaxW === 0) return maxBin;
@@ -1513,7 +1587,8 @@ function extractBladeEdgeCurve() {
   });
   const maxBin  = wSmoothed.indexOf(Math.max(...wSmoothed));
   const tipSide = maxBin >= BINS / 2 ? 'left' : 'right';
-  const juncBin   = detectJuncBin(wSmoothed, coarseMaxY, maxBin, tipSide, BINS);
+  let juncBin = findCornerJuncBin(rotPts, wSmoothed, maxBin, tipSide, BINS, minX, coarseBin);
+  if (juncBin < 0) juncBin = detectJuncBin(wSmoothed, coarseMaxY, maxBin, tipSide, BINS);
   const juncX_rot = minX + juncBin * coarseBin;
   const tipX_rot  = tipSide === 'left' ? minX : maxX;
 
