@@ -1438,10 +1438,19 @@ function detectJuncBin(wSmoothed, maxBin, tipSide, BINS) {
     }
   }
 
-  // アゴ = the tang minimum itself.
-  // The narrowest cross-section between the handle and the blade heel
-  // is the physical blade-to-handle junction (アゴ/heel).
-  return tangMinBin;
+  // Scan from blade heel toward handle: first bin that drops below 80% of heel width = アゴ
+  const thr = bladeMaxW * 0.80;
+  if (tipSide === 'right') {
+    for (let i = bladeMaxBin; i >= 0; i--) {
+      if (wSmoothed[i] < thr) return i + 1;
+    }
+    return 0;
+  } else {
+    for (let i = bladeMaxBin; i < BINS; i++) {
+      if (wSmoothed[i] < thr) return i - 1;
+    }
+    return BINS - 1;
+  }
 }
 
 // Gaussian smooth an array (skips emptyVal entries)
