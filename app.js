@@ -1039,7 +1039,7 @@ function estimateBladeLength(contour, rect) {
   const tipSide = maxBin >= BINS / 2 ? 'left' : 'right';
 
   // 幅が最大の40%に達する最初のビン = アゴ（柄→刃の移行点）
-  const junctionBin = detectJuncBin(smoothed, maxBin, tipSide, BINS);
+  const junctionBin = detectJuncBin(smoothed, maxY, maxBin, tipSide, BINS);
 
   const tipBin  = tipSide === 'left' ? 0 : BINS - 1;
   const lengthPx = Math.abs(junctionBin - tipBin) * binSize;
@@ -1400,7 +1400,7 @@ function autoDrawBladeCurve() {
 // Estimates the handle (tang) width from the 3 extreme handle-side bins, then
 // uses the midpoint between tang and peak width as the threshold.
 // This adapts to any tang/blade width ratio.
-function detectJuncBin(wSmoothed, maxBin, tipSide, BINS) {
+function detectJuncBin(wSmoothed, bottomEdge, maxBin, tipSide, BINS) {
   const globalMaxW = wSmoothed[maxBin];
   if (globalMaxW === 0) return maxBin;
 
@@ -1423,23 +1423,39 @@ function detectJuncBin(wSmoothed, maxBin, tipSide, BINS) {
     if (bladeMaxW === 0) return 0;
   }
 
-  // Walk from handle to bladeMaxBin and find the largest 2-bin width increase.
-  // The bolster (rivet/heel transition) is where width jumps sharply over a few
-  // bins, so the slope peak marks the bolster and the end of that span is アゴ.
+  // Smooth bottomEdge (3-point average) so single-bin noise doesn't dominate the slope.
+  // Skip Infinity / -Infinity bins.
+  const beSm = bottomEdge.map((_, i) => {
+    const s = Math.max(0, i - 1), e = Math.min(BINS - 1, i + 1);
+    let sum = 0, n = 0;
+    for (let j = s; j <= e; j++) {
+      const v = bottomEdge[j];
+      if (v !== Infinity && v !== -Infinity) { sum += v; n++; }
+    }
+    return n > 0 ? sum / n : null;
+  });
+
+  // The cutting edge has a sharp angle at the アゴ where it drops away from the
+  // handle bottom. In the rotated frame this shows up as a sharp jump in the
+  // bottom-edge Y (=bottomEdge) over 1–2 bins, larger than anywhere else on
+  // the blade (which is a smooth curve). Find the 2-bin window where bottomEdge
+  // increases the most and return the middle bin of that window.
   const span = 2;
-  let bestEnd = -1, bestSlope = 0;
+  let bestPos = -1, bestSlope = 0;
   if (tipSide === 'right') {
     for (let i = 0; i + span <= bladeMaxBin; i++) {
-      const slope = wSmoothed[i + span] - wSmoothed[i];
-      if (slope > bestSlope) { bestSlope = slope; bestEnd = i + span; }
+      if (beSm[i] === null || beSm[i + span] === null) continue;
+      const slope = beSm[i + span] - beSm[i];
+      if (slope > bestSlope) { bestSlope = slope; bestPos = i + 1; }
     }
-    return bestEnd === -1 ? 0 : bestEnd;
+    return bestPos === -1 ? 0 : bestPos;
   } else {
     for (let i = BINS - 1; i - span >= bladeMaxBin; i--) {
-      const slope = wSmoothed[i - span] - wSmoothed[i];
-      if (slope > bestSlope) { bestSlope = slope; bestEnd = i - span; }
+      if (beSm[i] === null || beSm[i - span] === null) continue;
+      const slope = beSm[i - span] - beSm[i];
+      if (slope > bestSlope) { bestSlope = slope; bestPos = i - 1; }
     }
-    return bestEnd === -1 ? BINS - 1 : bestEnd;
+    return bestPos === -1 ? BINS - 1 : bestPos;
   }
 }
 
@@ -1497,7 +1513,7 @@ function extractBladeEdgeCurve() {
   });
   const maxBin  = wSmoothed.indexOf(Math.max(...wSmoothed));
   const tipSide = maxBin >= BINS / 2 ? 'left' : 'right';
-  const juncBin   = detectJuncBin(wSmoothed, maxBin, tipSide, BINS);
+  const juncBin   = detectJuncBin(wSmoothed, coarseMaxY, maxBin, tipSide, BINS);
   const juncX_rot = minX + juncBin * coarseBin;
   const tipX_rot  = tipSide === 'left' ? minX : maxX;
 
