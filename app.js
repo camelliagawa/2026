@@ -1553,37 +1553,17 @@ function extractBladeEdgeCurve() {
   const smMinY = gaussianSmoothArr(medMinY, Infinity,   sigma);
   const smMaxY = gaussianSmoothArr(medMaxY, -Infinity,  sigma);
 
-  // Blade edge identification via rotated-Y pixel gradient:
-  // The knife is brighter than the background. Moving one pixel in the +rotatedY
-  // direction (perpendicular to knife axis, toward image-bottom in rotated frame):
-  //   • at blade edge (bottom): exits the knife → gradient < 0
-  //   • at spine (top):         enters the knife → gradient > 0
-  // rotatedY unit vector in image space: (-sinA, +cosA)
-  let gMinSum = 0, gMinN = 0, gMaxSum = 0, gMaxN = 0;
-  if (state.lastCanvas) {
-    const iw = state.lastCanvas.width, ih = state.lastCanvas.height;
-    const px = state.lastCanvas.getContext('2d').getImageData(0, 0, iw, ih).data;
-    const gray = (x, y) => {
-      const ix = Math.max(0, Math.min(iw - 1, Math.round(x)));
-      const iy = Math.max(0, Math.min(ih - 1, Math.round(y)));
-      const k = (iy * iw + ix) * 4;
-      return px[k] * 0.299 + px[k + 1] * 0.587 + px[k + 2] * 0.114;
-    };
-    state.lastContourPts.forEach((op, i) => {
-      const rp = rotPts[i];
-      if (rp.x < bladeMinX - binPx || rp.x > bladeMaxX + binPx) return;
-      const b = Math.max(0, Math.min(nBins - 1, Math.floor((rp.x - bladeMinX) / binPx)));
-      if (medMinY[b] === Infinity || medMaxY[b] === -Infinity) return;
-      const midY = (medMinY[b] + medMaxY[b]) * 0.5;
-      const g = gray(op.x - sinA, op.y + cosA) - gray(op.x, op.y);
-      if (rp.y < midY) { gMinSum += g; gMinN++; }
-      else             { gMaxSum += g; gMaxN++; }
-    });
-  }
-  const meanGMin = gMinN > 0 ? gMinSum / gMinN : 0;
-  const meanGMax = gMaxN > 0 ? gMaxSum / gMaxN : 0;
-  const bladeArr = meanGMax <= meanGMin ? smMaxY : smMinY;
-  const emptyVal  = meanGMax <= meanGMin ? -Infinity : Infinity;
+  // Blade edge identification via geometry:
+  // The cutting edge travels more (in rotated-Y) between the tip and the heel
+  // than the spine does. This is lighting-independent and works regardless of
+  // whether the knife is brighter or darker than the background.
+  const tipB  = tipSide === 'right' ? nBins - 1 : 0;
+  const heelB = tipSide === 'right' ? 0 : nBins - 1;
+  const sm = (arr, i) => (arr[i] !== Infinity && arr[i] !== -Infinity ? arr[i] : 0);
+  const deltaMax = Math.abs(sm(smMaxY, heelB) - sm(smMaxY, tipB));
+  const deltaMin = Math.abs(sm(smMinY, heelB) - sm(smMinY, tipB));
+  const bladeArr = deltaMax >= deltaMin ? smMaxY : smMinY;
+  const emptyVal  = deltaMax >= deltaMin ? -Infinity : Infinity;
 
   // Y at heel (junction) as y=0 reference for CSV
   const heelBin = Math.max(0, Math.min(nBins - 1, Math.round((juncX_rot - bladeMinX) / binPx)));
