@@ -1423,33 +1423,23 @@ function detectJuncBin(wSmoothed, maxBin, tipSide, BINS) {
     if (bladeMaxW === 0) return 0;
   }
 
-  // Find the tang minimum between handle end and blade heel.
-  // Initialising to bladeMaxW means handle-side bins that are wider than the
-  // blade heel (which can happen when the handle is the global max) are ignored.
-  let tangMinBin = tipSide === 'right' ? 0 : BINS - 1;
-  let tangMinW   = bladeMaxW;
+  // Walk from handle to bladeMaxBin and find the largest 2-bin width increase.
+  // The bolster (rivet/heel transition) is where width jumps sharply over a few
+  // bins, so the slope peak marks the bolster and the end of that span is アゴ.
+  const span = 2;
+  let bestEnd = -1, bestSlope = 0;
   if (tipSide === 'right') {
-    for (let i = 0; i < bladeMaxBin; i++) {
-      if (wSmoothed[i] < tangMinW) { tangMinW = wSmoothed[i]; tangMinBin = i; }
+    for (let i = 0; i + span <= bladeMaxBin; i++) {
+      const slope = wSmoothed[i + span] - wSmoothed[i];
+      if (slope > bestSlope) { bestSlope = slope; bestEnd = i + span; }
     }
+    return bestEnd === -1 ? 0 : bestEnd;
   } else {
-    for (let i = BINS - 1; i > bladeMaxBin; i--) {
-      if (wSmoothed[i] < tangMinW) { tangMinW = wSmoothed[i]; tangMinBin = i; }
+    for (let i = BINS - 1; i - span >= bladeMaxBin; i--) {
+      const slope = wSmoothed[i - span] - wSmoothed[i];
+      if (slope > bestSlope) { bestSlope = slope; bestEnd = i - span; }
     }
-  }
-
-  // Scan from blade heel toward handle: first bin that drops below 80% of heel width = アゴ
-  const thr = bladeMaxW * 0.80;
-  if (tipSide === 'right') {
-    for (let i = bladeMaxBin; i >= 0; i--) {
-      if (wSmoothed[i] < thr) return i + 1;
-    }
-    return 0;
-  } else {
-    for (let i = bladeMaxBin; i < BINS; i++) {
-      if (wSmoothed[i] < thr) return i - 1;
-    }
-    return BINS - 1;
+    return bestEnd === -1 ? BINS - 1 : bestEnd;
   }
 }
 
