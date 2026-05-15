@@ -1442,11 +1442,25 @@ function findCornerJuncBin(rotPts, wSmoothed, maxBin, tipSide, BINS, minX, binSi
   // Walk the contour; at each point compute the turn angle from the previous
   // segment to the next. Adjacent points are corner points (CHAIN_APPROX_SIMPLE),
   // so segments are real edges.
+  // Ignore the first 15% of knife length (handle butt) to avoid false corners there.
+  const range = binSize * BINS;
+  const xButtSkip = tipSide === 'right'
+    ? minX + range * 0.15
+    : minX + range * 0.85;
+
   const n = rotPts.length;
-  let bestDist = Infinity, bestBin = -1;
+  // Among qualifying corners pick the one FARTHEST from blade (= leftmost for
+  // tipSide='right'). This is Corner A — the handle-side right angle of the アゴ
+  // step, not the blade-side one. Using closest-to-blade previously landed on
+  // Corner B (too far into the blade, giving 166.6mm instead of ~180mm).
+  let bestHandleSideX = tipSide === 'right' ? Infinity : -Infinity;
+  let bestBin = -1;
   for (let i = 0; i < n; i++) {
     const p = rotPts[i];
     if (p.y <= yThr) continue;
+    // Skip butt region
+    if (tipSide === 'right' ? p.x < xButtSkip : p.x > xButtSkip) continue;
+    // Must be in handle region (not past blade max)
     if (tipSide === 'right' ? p.x >= bladeMaxX : p.x <= bladeMaxX) continue;
 
     const a = rotPts[(i - 1 + n) % n];
@@ -1462,11 +1476,8 @@ function findCornerJuncBin(rotPts, wSmoothed, maxBin, tipSide, BINS, minX, binSi
     const turnDeg = Math.atan2(Math.abs(cross), dot) * 180 / Math.PI;
     if (turnDeg < 50 || turnDeg > 130) continue;
 
-    // Among qualifying corners, pick the one closest to bladeMaxX (= the one
-    // farthest into the blade region while still on the handle side).
-    const distToBlade = tipSide === 'right' ? (bladeMaxX - p.x) : (p.x - bladeMaxX);
-    if (distToBlade >= 0 && distToBlade < bestDist) {
-      bestDist = distToBlade;
+    if (tipSide === 'right' ? p.x < bestHandleSideX : p.x > bestHandleSideX) {
+      bestHandleSideX = p.x;
       bestBin = Math.min(BINS - 1, Math.max(0, Math.floor((p.x - minX) / binSize)));
     }
   }
