@@ -1618,39 +1618,50 @@ function bladeDotCount(pts) {
 
 function drawBladeEdgeCurve(pts) {
   if (pts.length < 2) return;
-  const ctx = elems.annotatedCanvas.getContext('2d');
-  // 高解像度写真でも見えるよう画像サイズに合わせてスケール
-  const scale = Math.max(elems.annotatedCanvas.width, elems.annotatedCanvas.height) / 1000;
-  const lw   = Math.max(3, Math.round(4 * scale));
-  const mr   = Math.max(4, Math.round(5 * scale));
-  const blur = Math.max(8, Math.round(12 * scale));
-  ctx.save();
-  ctx.strokeStyle = '#00ffff';
-  ctx.lineWidth = lw;
-  ctx.lineJoin = 'round';
-  ctx.lineCap = 'round';
-  ctx.shadowColor = '#00ffff';
-  ctx.shadowBlur = blur;
-  ctx.beginPath();
-  ctx.moveTo(pts[0].imgX, pts[0].imgY);
-  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].imgX, pts[i].imgY);
-  ctx.stroke();
   const intervalMm = parseFloat(elems.bladeDotInterval?.value) || 1;
   const dotStep = Math.max(1, Math.round(intervalMm / 0.1));
-  ctx.fillStyle = '#00ffff';
-  ctx.shadowBlur = 0;
-  pts.forEach((p, i) => {
-    if (i % dotStep === 0) {
-      ctx.beginPath();
-      ctx.arc(p.imgX, p.imgY, mr, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  });
-  ctx.restore();
+
+  const drawOn = (canvas) => {
+    if (!canvas || canvas.width === 0 || canvas.height === 0) return;
+    const ctx = canvas.getContext('2d');
+    const scale = Math.max(canvas.width, canvas.height) / 1000;
+    const lw   = Math.max(3, Math.round(4 * scale));
+    const mr   = Math.max(4, Math.round(5 * scale));
+    const blur = Math.max(8, Math.round(12 * scale));
+    ctx.save();
+    ctx.strokeStyle = '#00ffff';
+    ctx.lineWidth = lw;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.shadowColor = '#00ffff';
+    ctx.shadowBlur = blur;
+    ctx.beginPath();
+    ctx.moveTo(pts[0].imgX, pts[0].imgY);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].imgX, pts[i].imgY);
+    ctx.stroke();
+    ctx.fillStyle = '#00ffff';
+    ctx.shadowBlur = 0;
+    pts.forEach((p, i) => {
+      if (i % dotStep === 0) {
+        ctx.beginPath();
+        ctx.arc(p.imgX, p.imgY, mr, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+    ctx.restore();
+  };
+
+  drawOn(elems.annotatedCanvas);
+  if (elems.resultProcessedCanvas && elems.resultProcessedCanvas.width > 0) {
+    drawOn(elems.resultProcessedCanvas);
+  }
 }
 
 function exportBladeEdgeCsv(pts) {
-  const rows = pts.map(p => `${p.xMm.toFixed(2)},${p.yMm.toFixed(2)}`);
+  const intervalMm = parseFloat(elems.bladeDotInterval?.value) || 1;
+  const dotStep = Math.max(1, Math.round(intervalMm / 0.1));
+  const sampled = pts.filter((_, i) => i % dotStep === 0);
+  const rows = sampled.map(p => `${p.xMm.toFixed(2)},${p.yMm.toFixed(2)}`);
   const csv = ['x_mm,y_mm', ...rows].join('\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -1659,7 +1670,7 @@ function exportBladeEdgeCsv(pts) {
   a.download = `blade-curve-${Date.now()}.csv`;
   a.click();
   URL.revokeObjectURL(url);
-  log(`刃渡り曲線CSV出力: ${pts.length}点`, 'info');
+  log(`刃渡り曲線CSV出力: ${sampled.length}点 (${intervalMm}mm間隔)`, 'info');
 }
 
 elems.btnBladeCurve.addEventListener('click', () => {
