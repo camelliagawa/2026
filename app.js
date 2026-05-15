@@ -696,7 +696,7 @@ elems.fileInput.addEventListener('change', (e) => {
 function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
   if (!state.opencvReady) return;
 
-  let src, gray, blurred, edges, contours, hierarchy, result;
+  let src, gray, blurred, edges, edgesDisplay, contours, hierarchy, result;
 
   try {
     src = cv.imread(srcCanvas);
@@ -714,11 +714,13 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
     cv.dilate(edges, edges, kernel);
     kernel.delete();
 
+    // Clone edges before findContours — OpenCV.js clears the source Mat during findContours.
+    edgesDisplay = edges.clone();
     cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
     result = new cv.Mat();
     if (state.params.showEdges) {
-      cv.cvtColor(edges, result, cv.COLOR_GRAY2RGBA);
+      cv.cvtColor(edgesDisplay, result, cv.COLOR_GRAY2RGBA);
     } else {
       src.copyTo(result);
     }
@@ -831,9 +833,9 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
     }
 
     // Always show edge image in the results tab processed-image box
-    if (elems.resultProcessedCanvas && elems.resultProcessedImageBox) {
+    if (elems.resultProcessedCanvas && elems.resultProcessedImageBox && edgesDisplay) {
       const edgeRgba = new cv.Mat();
-      cv.cvtColor(edges, edgeRgba, cv.COLOR_GRAY2RGBA);
+      cv.cvtColor(edgesDisplay, edgeRgba, cv.COLOR_GRAY2RGBA);
       cv.imshow(elems.resultProcessedCanvas, edgeRgba);
       edgeRgba.delete();
       elems.resultProcessedImageBox.classList.remove('hidden');
@@ -844,7 +846,7 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
   } catch (err) {
     log(`検出エラー: ${err.message || err}`, 'error');
   } finally {
-    [src, gray, blurred, edges, contours, hierarchy, result].forEach(m => {
+    [src, gray, blurred, edges, edgesDisplay, contours, hierarchy, result].forEach(m => {
       try { if (m) m.delete(); } catch (_) {}
     });
   }
@@ -1428,35 +1430,48 @@ function detectJuncBin(wSmoothed, bottomEdge, maxBin, tipSide, BINS) {
     if (bladeMaxW === 0) return 0;
   }
 
-  // Smooth bottomEdge with 5-point average to suppress noise before differentiation.
-  const beSm = bottomEdge.map((_, i) => {
-    const s = Math.max(0, i - 2), e = Math.min(BINS - 1, i + 2);
-    let sum = 0, n = 0;
-    for (let j = s; j <= e; j++) {
-      const v = bottomEdge[j];
-      if (v !== Infinity && v !== -Infinity) { sum += v; n++; }
-    }
-    return n > 0 ? sum / n : null;
-  });
-
-  // Second derivative of bottomEdge: アゴ is the onset of the steep drop in the
-  // cutting edge profile, which appears as maximum positive curvature (d2 peak)
-  // just before the slope becomes maximal.
-  let bestPos = -1, bestCurve = 0;
+  // Estimate handle bottom Y from the handle-end zone (farthest 20% from blade).
+  // Use the minimum maxY in that zone to get the "purest" handle level (avoids bolster).
+  let handleY = Infinity, handleN = 0;
   if (tipSide === 'right') {
-    for (let i = 1; i < bladeMaxBin; i++) {
-      if (beSm[i - 1] === null || beSm[i] === null || beSm[i + 1] === null) continue;
-      const d2 = beSm[i + 1] - 2 * beSm[i] + beSm[i - 1];
-      if (d2 > bestCurve) { bestCurve = d2; bestPos = i; }
+    for (let i = 0; i < skip; i++) {
+      const v = bottomEdge[i];
+      if (v !== Infinity && v !== -Infinity) { if (v < handleY) handleY = v; handleN++; }
     }
-    return bestPos === -1 ? 0 : bestPos;
   } else {
-    for (let i = BINS - 2; i > bladeMaxBin; i--) {
-      if (beSm[i - 1] === null || beSm[i] === null || beSm[i + 1] === null) continue;
-      const d2 = beSm[i + 1] - 2 * beSm[i] + beSm[i - 1];
-      if (d2 > bestCurve) { bestCurve = d2; bestPos = i; }
+    for (let i = BINS - skip; i < BINS; i++) {
+      const v = bottomEdge[i];
+      if (v !== Infinity && v !== -Infinity) { if (v < handleY) handleY = v; handleN++; }
     }
-    return bestPos === -1 ? BINS - 1 : bestPos;
+  }
+  if (handleN === 0) return tipSide === 'right' ? bladeMaxBin : bladeMaxBin;
+
+  // Cutting edge Y at blade heel — the reference depth of the blade cutting edge.
+  const heelY = bottomEdge[bladeMaxBin];
+  if (heelY === Infinity || heelY === -Infinity) return bladeMaxBin;
+  const stepHeight = heelY - handleY;
+
+  // If no significant step exists, fall back to bladeMaxBin.
+  if (stepHeight <= 0) return bladeMaxBin;
+
+  // アゴ = first bin (scanning from handle toward blade) where the bottom edge
+  // exceeds the handle level by 50% of the total handle→heel step.
+  // The step at the アゴ is abrupt, so the 50% crossing coincides with the
+  // first bin where the cutting edge appears below the handle bottom line.
+  const threshold = handleY + stepHeight * 0.50;
+
+  if (tipSide === 'right') {
+    for (let i = skip; i <= bladeMaxBin; i++) {
+      const v = bottomEdge[i];
+      if (v !== Infinity && v !== -Infinity && v > threshold) return i;
+    }
+    return bladeMaxBin;
+  } else {
+    for (let i = BINS - 1 - skip; i >= bladeMaxBin; i--) {
+      const v = bottomEdge[i];
+      if (v !== Infinity && v !== -Infinity && v > threshold) return i;
+    }
+    return bladeMaxBin;
   }
 }
 
