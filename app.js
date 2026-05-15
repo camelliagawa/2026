@@ -1540,38 +1540,48 @@ function extractBladeEdgeCurve() {
     return sum / cnt;
   });
 
-  // アゴ detection: the RIGHT-ANGLE CORNER = largest rotY step in the profile.
-  // The bolster creates a sharp vertical face → steepest slope in the rotY profile.
-  // Measure slope over a window of 5% of the knife length to span the transition.
+  // Step 1: Determine handle side via maximum slope (= bolster transition direction)
   const WSPAN = Math.max(4, Math.round(raw.length * 0.05));
-  const SKIP  = Math.round(raw.length * 0.08); // skip 8% at each end to avoid edge artifacts
-  let bestSlope = 0, agoIdx = Math.round(raw.length * 0.3);
+  const SKIP  = Math.round(raw.length * 0.08);
+  let bestSlope = 0;
   for (let i = SKIP + WSPAN; i < raw.length - SKIP - WSPAN; i++) {
     const slope = smY[i + WSPAN] - smY[i - WSPAN];
-    if (Math.abs(slope) > Math.abs(bestSlope)) {
-      bestSlope = slope;
-      agoIdx = i;
+    if (Math.abs(slope) > Math.abs(bestSlope)) bestSlope = slope;
+  }
+  // bestSlope > 0 → rotY increases left→right → handle is on LEFT
+  const handleOnLeft = bestSlope > 0;
+
+  // Step 2: Handle level = average smY in the far 15% (pure handle zone)
+  const hZoneN = Math.max(1, Math.round(raw.length * 0.15));
+  const hZone  = handleOnLeft ? smY.slice(0, hZoneN) : smY.slice(-hZoneN);
+  const handleLevel = hZone.reduce((a, b) => a + b, 0) / hZone.length;
+  const bladeMaxSmY  = Math.max(...smY);
+
+  // Step 3: アゴ = the RIGHT-ANGLE CORNER
+  // First point (scanning from handle side) where smY exceeds handleLevel + 20% of step.
+  // This locates the exact start of the bolster rise, not the midpoint.
+  const agoThresh = handleLevel + (bladeMaxSmY - handleLevel) * 0.20;
+  let agoIdx = handleOnLeft ? Math.round(raw.length * 0.3) : Math.round(raw.length * 0.7);
+  if (handleOnLeft) {
+    for (let j = SKIP; j < raw.length; j++) {
+      if (smY[j] > agoThresh) { agoIdx = j; break; }
+    }
+  } else {
+    for (let j = raw.length - 1 - SKIP; j >= 0; j--) {
+      if (smY[j] > agoThresh) { agoIdx = j; break; }
     }
   }
 
-  // Determine handle side from the sign of the largest slope:
-  //   bestSlope > 0 → rotY increases left→right at アゴ → handle is on LEFT
-  //   bestSlope < 0 → rotY decreases left→right at アゴ → handle is on RIGHT
-  const handleOnLeft = bestSlope > 0;
-
   // Build blade array from アゴ to tip end, always in アゴ→切先 order
   let blade = handleOnLeft
-    ? raw.slice(agoIdx)                        // ago … right end (tip side)
-    : raw.slice(0, agoIdx + 1).reverse();      // tip side … ago, reversed
-
+    ? raw.slice(agoIdx)
+    : raw.slice(0, agoIdx + 1).reverse();
   if (blade.length < 4) return null;
 
-  // 切先 detection: the ACUTE ANGLE where cutting edge meets the spine.
-  // The cutting edge rises toward the tip → rotY decreases from ago toward 切先.
-  // Find the last blade point that still has significant blade depth (≥ 30% of peak).
-  // This trims off any post-tip background pixels that the scan may have captured.
+  // Step 4: 切先 = the ACUTE ANGLE (cutting edge converges with spine)
+  // Last blade point where rotY ≥ 20% of peak — closer to the actual tip than 30%.
   const peakRotY = blade.reduce((m, p) => Math.max(m, p.rotY), 0);
-  const kissThresh = peakRotY * 0.30;
+  const kissThresh = peakRotY * 0.20;
   let kissEnd = blade.length - 1;
   for (let i = blade.length - 1; i > 0; i--) {
     if (blade[i].rotY >= kissThresh) { kissEnd = i; break; }
