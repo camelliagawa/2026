@@ -1618,6 +1618,23 @@ function drawBladeEdgeCurve(pts) {
       ctx.arc(p.imgX, p.imgY, mr, 0, Math.PI * 2);
       ctx.fill();
     });
+
+    // Red dots at アゴ (first point) and 切先 (last point)
+    const endR = Math.max(8, Math.round(10 * scale));
+    [[pts[0], 'アゴ'], [pts[pts.length - 1], '切先']].forEach(([p, label]) => {
+      ctx.fillStyle = '#ff3333';
+      ctx.shadowColor = '#ff0000';
+      ctx.shadowBlur = blur;
+      ctx.beginPath();
+      ctx.arc(p.imgX, p.imgY, endR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `bold ${Math.max(20, Math.round(24 * scale))}px sans-serif`;
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(label, p.imgX + endR + 4, p.imgY - 4);
+    });
+
     ctx.restore();
   };
 
