@@ -1516,11 +1516,13 @@ function extractBladeEdgeCurve() {
     return pixels[idx] > 64 || pixels[idx + 1] > 64 || pixels[idx + 2] > 64;
   };
 
-  // For each rotated X column, scan downward from the bottom of the knife half
+  // For each rotated X column, scan inward from OUTSIDE the bounding box
   // to find the outermost edge pixel on the cutting edge side (positive rotY).
+  // Start at 1.1× halfHt (outside the bbox) so the first hit is the silhouette edge,
+  // not an internal reflection or texture line inside the blade.
   const raw = [];
   for (let rotX = -halfLen; rotX <= halfLen; rotX += 2) {
-    for (let rotY = halfHt * 0.97; rotY > 0; rotY--) {
+    for (let rotY = halfHt * 1.1; rotY > 0; rotY--) {
       const ix = Math.round(cosA * rotX - sinA * rotY + cx);
       const iy = Math.round(sinA * rotX + cosA * rotY + cy);
       if (isEdge(ix, iy)) {
