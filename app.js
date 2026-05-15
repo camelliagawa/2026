@@ -725,6 +725,19 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
       src.copyTo(result);
     }
 
+    // Edge image must be drawn BEFORE knife detection processing so that
+    // autoDrawBladeCurve() can overlay the cyan curve on top of it.
+    if (state.params.showEdges) {
+      cv.imshow(elems.processedCanvas, result);
+    }
+    if (elems.resultProcessedCanvas && elems.resultProcessedImageBox && edgesDisplay) {
+      const edgeRgba = new cv.Mat();
+      cv.cvtColor(edgesDisplay, edgeRgba, cv.COLOR_GRAY2RGBA);
+      cv.imshow(elems.resultProcessedCanvas, edgeRgba);
+      edgeRgba.delete();
+      elems.resultProcessedImageBox.classList.remove('hidden');
+    }
+
     // 最大スコアの細長い輪郭を包丁候補として選択
     let bestContour = null;
     let bestScore = 0;
@@ -826,19 +839,6 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
     } else {
       updateStatus('包丁未検出');
       if (saveResult) log('包丁を検出できませんでした。パラメータを調整してください。', 'warn');
-    }
-
-    if (state.params.showEdges) {
-      cv.imshow(elems.processedCanvas, result);
-    }
-
-    // Always show edge image in the results tab processed-image box
-    if (elems.resultProcessedCanvas && elems.resultProcessedImageBox && edgesDisplay) {
-      const edgeRgba = new cv.Mat();
-      cv.cvtColor(edgesDisplay, edgeRgba, cv.COLOR_GRAY2RGBA);
-      cv.imshow(elems.resultProcessedCanvas, edgeRgba);
-      edgeRgba.delete();
-      elems.resultProcessedImageBox.classList.remove('hidden');
     }
 
     elems.btnSaveImage.disabled = false;
@@ -1651,7 +1651,6 @@ function drawBladeEdgeCurve(pts) {
     ctx.restore();
   };
 
-  drawOn(elems.annotatedCanvas);
   if (elems.resultProcessedCanvas && elems.resultProcessedCanvas.width > 0) {
     drawOn(elems.resultProcessedCanvas);
   }
