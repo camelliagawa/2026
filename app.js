@@ -1516,10 +1516,8 @@ function extractBladeEdgeCurve() {
     return pixels[idx] > 64 || pixels[idx + 1] > 64 || pixels[idx + 2] > 64;
   };
 
-  // For each rotated X column, scan inward from OUTSIDE the bounding box
-  // to find the outermost edge pixel on the cutting edge side (positive rotY).
-  // Start at 1.1× halfHt (outside the bbox) so the first hit is the silhouette edge,
-  // not an internal reflection or texture line inside the blade.
+  // Scan cutting edge: for each rotX column, find outermost pixel on cutting edge side.
+  // Start from OUTSIDE (1.1× halfHt) to ensure the first hit is the silhouette edge.
   const raw = [];
   for (let rotX = -halfLen; rotX <= halfLen; rotX += 2) {
     for (let rotY = halfHt * 1.1; rotY > 0; rotY--) {
@@ -1531,43 +1529,63 @@ function extractBladeEdgeCurve() {
       }
     }
   }
-  if (raw.length < 10) return null;
+  if (raw.length < 20) return null;
 
-  // Find blade heel (max rotY) to determine tipSide
-  let maxRYIdx = 0;
-  raw.forEach((p, i) => { if (p.rotY > raw[maxRYIdx].rotY) maxRYIdx = i; });
-  const tipSide = maxRYIdx < raw.length / 2 ? 'right' : 'left';
+  // Smooth rotY profile to suppress rivet/texture noise
+  const SSPAN = Math.max(3, Math.round(raw.length * 0.03));
+  const smY = raw.map((_, i) => {
+    const s = Math.max(0, i - SSPAN), e = Math.min(raw.length - 1, i + SSPAN);
+    let sum = 0, cnt = 0;
+    for (let j = s; j <= e; j++) { sum += raw[j].rotY; cnt++; }
+    return sum / cnt;
+  });
 
-  // Average rotY in the butt zone (far 20% from blade) = handle level
-  const butt = Math.max(1, Math.floor(raw.length * 0.20));
-  const buttSlice = tipSide === 'right' ? raw.slice(0, butt) : raw.slice(-butt);
-  const handleY = buttSlice.reduce((s, p) => s + p.rotY, 0) / buttSlice.length;
-  const heelY   = raw[maxRYIdx].rotY;
-
-  // アゴ: first point (scanning from butt toward heel) where rotY exceeds
-  // handle level by 15% of the total handle→heel step.
-  const thresh = handleY + (heelY - handleY) * 0.15;
-  let agoIdx = maxRYIdx;
-  if (tipSide === 'right') {
-    for (let i = 0; i < maxRYIdx; i++) {
-      if (raw[i].rotY > thresh) { agoIdx = i; break; }
-    }
-  } else {
-    for (let i = raw.length - 1; i > maxRYIdx; i--) {
-      if (raw[i].rotY > thresh) { agoIdx = i; break; }
+  // アゴ detection: the RIGHT-ANGLE CORNER = largest rotY step in the profile.
+  // The bolster creates a sharp vertical face → steepest slope in the rotY profile.
+  // Measure slope over a window of 5% of the knife length to span the transition.
+  const WSPAN = Math.max(4, Math.round(raw.length * 0.05));
+  const SKIP  = Math.round(raw.length * 0.08); // skip 8% at each end to avoid edge artifacts
+  let bestSlope = 0, agoIdx = Math.round(raw.length * 0.3);
+  for (let i = SKIP + WSPAN; i < raw.length - SKIP - WSPAN; i++) {
+    const slope = smY[i + WSPAN] - smY[i - WSPAN];
+    if (Math.abs(slope) > Math.abs(bestSlope)) {
+      bestSlope = slope;
+      agoIdx = i;
     }
   }
 
-  const blade = tipSide === 'right' ? raw.slice(agoIdx) : raw.slice(0, agoIdx + 1);
-  if (blade.length < 2) return null;
-  const ago = tipSide === 'right' ? blade[0] : blade[blade.length - 1];
+  // Determine handle side from the sign of the largest slope:
+  //   bestSlope > 0 → rotY increases left→right at アゴ → handle is on LEFT
+  //   bestSlope < 0 → rotY decreases left→right at アゴ → handle is on RIGHT
+  const handleOnLeft = bestSlope > 0;
 
+  // Build blade array from アゴ to tip end, always in アゴ→切先 order
+  let blade = handleOnLeft
+    ? raw.slice(agoIdx)                        // ago … right end (tip side)
+    : raw.slice(0, agoIdx + 1).reverse();      // tip side … ago, reversed
+
+  if (blade.length < 4) return null;
+
+  // 切先 detection: the ACUTE ANGLE where cutting edge meets the spine.
+  // The cutting edge rises toward the tip → rotY decreases from ago toward 切先.
+  // Find the last blade point that still has significant blade depth (≥ 30% of peak).
+  // This trims off any post-tip background pixels that the scan may have captured.
+  const peakRotY = blade.reduce((m, p) => Math.max(m, p.rotY), 0);
+  const kissThresh = peakRotY * 0.30;
+  let kissEnd = blade.length - 1;
+  for (let i = blade.length - 1; i > 0; i--) {
+    if (blade[i].rotY >= kissThresh) { kissEnd = i; break; }
+  }
+  blade = blade.slice(0, kissEnd + 1);
+  if (blade.length < 2) return null;
+
+  const ago = blade[0];
   return blade.map(p => ({
     imgX: p.imgX,
     imgY: p.imgY,
     xMm: Math.abs(p.rotX - ago.rotX) / ppm,
     yMm: (p.rotY - ago.rotY) / ppm,
-  })).sort((a, b) => a.xMm - b.xMm);
+  }));
 }
 
 function sampleByMm(pts, intervalMm) {
