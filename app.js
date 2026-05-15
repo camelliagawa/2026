@@ -1393,12 +1393,12 @@ function exportCsv() {
 // =====================================================================
 function updateBladeCurveBtn() {
   if (elems.btnBladeCurve) {
-    elems.btnBladeCurve.disabled = !(state.calibPixelsPerMm && state.lastContourPts);
+    elems.btnBladeCurve.disabled = !(state.calibPixelsPerMm && state.lastRect);
   }
 }
 
 function autoDrawBladeCurve() {
-  if (!state.calibPixelsPerMm || !state.lastContourPts) return;
+  if (!state.calibPixelsPerMm || !state.lastRect) return;
   const pts = extractBladeEdgeCurve();
   if (!pts || pts.length === 0) return;
   state.lastBladeCurvePts = pts;
@@ -1491,8 +1491,10 @@ function gaussianSmoothArr(arr, emptyVal, sigma) {
 
 
 function extractBladeEdgeCurve() {
+  const canvas = elems.resultProcessedCanvas;
+  if (!canvas || canvas.width === 0 || canvas.height === 0) return null;
   const ppm = state.calibPixelsPerMm;
-  if (!ppm || !state.lastContourPts || !state.lastRect) return null;
+  if (!ppm || !state.lastRect) return null;
 
   const { angle: rawAngle, center, size } = state.lastRect;
   let angle = rawAngle;
@@ -1500,126 +1502,94 @@ function extractBladeEdgeCurve() {
   const cx = center.x, cy = center.y;
   const rad = angle * Math.PI / 180;
   const cosA = Math.cos(rad), sinA = Math.sin(rad);
+  const W = canvas.width, H = canvas.height;
+  const halfLen = Math.max(size.width, size.height) / 2;
+  const halfHt  = Math.min(size.width, size.height) / 2;
 
-  const rotPts = state.lastContourPts.map(p => ({
-    x:  cosA * (p.x - cx) + sinA * (p.y - cy),
-    y: -sinA * (p.x - cx) + cosA * (p.y - cy),
-  }));
+  const ctx = canvas.getContext('2d');
+  const idata = ctx.getImageData(0, 0, W, H);
+  const pixels = idata.data;
 
-  let minX = Infinity, maxX = -Infinity;
-  rotPts.forEach(p => { if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x; });
-  const range = maxX - minX;
-  if (range < 1) return null;
+  const isEdge = (ix, iy) => {
+    if (ix < 0 || ix >= W || iy < 0 || iy >= H) return false;
+    const idx = (iy * W + ix) * 4;
+    return pixels[idx] > 64 || pixels[idx + 1] > 64 || pixels[idx + 2] > 64;
+  };
 
-  // 50-bin coarse profile to locate junction/tip (same as estimateBladeLength)
-  const BINS = 50;
-  const coarseBin = range / BINS;
-  const coarseMinY = new Array(BINS).fill(Infinity);
-  const coarseMaxY = new Array(BINS).fill(-Infinity);
-  rotPts.forEach(p => {
-    const b = Math.min(Math.floor((p.x - minX) / coarseBin), BINS - 1);
-    if (p.y < coarseMinY[b]) coarseMinY[b] = p.y;
-    if (p.y > coarseMaxY[b]) coarseMaxY[b] = p.y;
-  });
-  const widths = coarseMinY.map((mn, i) => mn === Infinity ? 0 : coarseMaxY[i] - mn);
-  const wSmoothed = widths.map((_, i) => {
-    const s = Math.max(0, i - 1), e = Math.min(BINS - 1, i + 1);
-    const vals = widths.slice(s, e + 1).filter(v => v > 0);
-    return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
-  });
-  const maxBin  = wSmoothed.indexOf(Math.max(...wSmoothed));
-  const tipSide = maxBin >= BINS / 2 ? 'left' : 'right';
-  const juncBin = detectJuncBin(wSmoothed, coarseMaxY, maxBin, tipSide, BINS);
-  const juncX_rot = minX + juncBin * coarseBin;
-  const tipX_rot  = tipSide === 'left' ? minX : maxX;
-
-  const bladeMinX = Math.min(juncX_rot, tipX_rot);
-  const bladeMaxX = Math.max(juncX_rot, tipX_rot);
-  const bladeRange = bladeMaxX - bladeMinX;
-  if (bladeRange < 1) return null;
-
-  // Aggregate into medium bins (~3px each) — dense enough to always capture both edges
-  const binPx = Math.max(3, Math.round(bladeRange / 200));
-  const nBins  = Math.ceil(bladeRange / binPx);
-  const medMinY = new Array(nBins).fill(Infinity);
-  const medMaxY = new Array(nBins).fill(-Infinity);
-  rotPts.forEach(p => {
-    if (p.x < bladeMinX - binPx || p.x > bladeMaxX + binPx) return;
-    const b = Math.max(0, Math.min(nBins - 1, Math.floor((p.x - bladeMinX) / binPx)));
-    if (p.y < medMinY[b]) medMinY[b] = p.y;
-    if (p.y > medMaxY[b]) medMaxY[b] = p.y;
-  });
-
-  // Fill remaining gaps by propagation
-  const fillArr = (arr, empty) => {
-    const first = arr.findIndex(v => v !== empty);
-    if (first === -1) return;
-    for (let i = 0; i < first; i++) arr[i] = arr[first];
-    let prev = first;
-    for (let i = first + 1; i < arr.length; i++) {
-      if (arr[i] !== empty) {
-        if (i - prev > 1) {
-          const a = arr[prev], b = arr[i], n = i - prev;
-          for (let j = prev + 1; j < i; j++) arr[j] = a + (b - a) * (j - prev) / n;
-        }
-        prev = i;
+  // For each rotated X column, scan downward from the bottom of the knife half
+  // to find the outermost edge pixel on the cutting edge side (positive rotY).
+  const raw = [];
+  for (let rotX = -halfLen; rotX <= halfLen; rotX += 2) {
+    for (let rotY = halfHt * 0.97; rotY > 0; rotY--) {
+      const ix = Math.round(cosA * rotX - sinA * rotY + cx);
+      const iy = Math.round(sinA * rotX + cosA * rotY + cy);
+      if (isEdge(ix, iy)) {
+        raw.push({ imgX: ix, imgY: iy, rotX, rotY });
+        break;
       }
     }
-    for (let i = prev + 1; i < arr.length; i++) arr[i] = arr[prev];
-  };
-  fillArr(medMinY, Infinity);
-  fillArr(medMaxY, -Infinity);
+  }
+  if (raw.length < 10) return null;
 
-  // Gaussian smoothing: sigma = 4% of bin count (eliminates jagged noise)
-  const sigma = Math.max(5, Math.round(nBins * 0.06));
-  const smMinY = gaussianSmoothArr(medMinY, Infinity,   sigma);
-  const smMaxY = gaussianSmoothArr(medMaxY, -Infinity,  sigma);
+  // Find blade heel (max rotY) to determine tipSide
+  let maxRYIdx = 0;
+  raw.forEach((p, i) => { if (p.rotY > raw[maxRYIdx].rotY) maxRYIdx = i; });
+  const tipSide = maxRYIdx < raw.length / 2 ? 'right' : 'left';
 
-  // Blade edge = smMaxY (lower edge in rotated frame).
-  // When a knife is photographed in normal orientation (cutting edge facing down),
-  // the cutting edge is always the lower silhouette → smMaxY.
-  const bladeArr = smMaxY;
-  const emptyVal  = -Infinity;
+  // Average rotY in the butt zone (far 20% from blade) = handle level
+  const butt = Math.max(1, Math.floor(raw.length * 0.20));
+  const buttSlice = tipSide === 'right' ? raw.slice(0, butt) : raw.slice(-butt);
+  const handleY = buttSlice.reduce((s, p) => s + p.rotY, 0) / buttSlice.length;
+  const heelY   = raw[maxRYIdx].rotY;
 
-  // Y at heel (junction) as y=0 reference for CSV
-  const heelBin = Math.max(0, Math.min(nBins - 1, Math.round((juncX_rot - bladeMinX) / binPx)));
-  const heelY   = bladeArr[heelBin] !== emptyVal ? bladeArr[heelBin] : 0;
-
-  // Resample at exactly 0.1mm intervals using linear interpolation
-  const stepPx = 0.1 * ppm;
-  const pts = [];
-  for (let xOff = 0; xOff <= bladeRange; xOff += stepPx) {
-    const fracBin = xOff / binPx;
-    const b0 = Math.min(Math.floor(fracBin), nBins - 1);
-    const b1 = Math.min(b0 + 1, nBins - 1);
-    const t  = fracBin - Math.floor(fracBin);
-    const v0 = bladeArr[b0], v1 = bladeArr[b1];
-    if (v0 === emptyVal || v1 === emptyVal) continue;
-    const yRot = v0 * (1 - t) + v1 * t;
-    const xRot = bladeMinX + xOff;
-
-    const distPx = tipSide === 'left' ? (juncX_rot - xRot) : (xRot - juncX_rot);
-    const xMm = distPx / ppm;
-    const yMm = (yRot - heelY) / ppm;
-
-    const imgX = cosA * xRot - sinA * yRot + cx;
-    const imgY = sinA * xRot + cosA * yRot + cy;
-    pts.push({ xMm, yMm, imgX, imgY });
+  // アゴ: first point (scanning from butt toward heel) where rotY exceeds
+  // handle level by 15% of the total handle→heel step.
+  const thresh = handleY + (heelY - handleY) * 0.15;
+  let agoIdx = maxRYIdx;
+  if (tipSide === 'right') {
+    for (let i = 0; i < maxRYIdx; i++) {
+      if (raw[i].rotY > thresh) { agoIdx = i; break; }
+    }
+  } else {
+    for (let i = raw.length - 1; i > maxRYIdx; i--) {
+      if (raw[i].rotY > thresh) { agoIdx = i; break; }
+    }
   }
 
-  return pts.sort((a, b) => a.xMm - b.xMm);
+  const blade = tipSide === 'right' ? raw.slice(agoIdx) : raw.slice(0, agoIdx + 1);
+  if (blade.length < 2) return null;
+  const ago = tipSide === 'right' ? blade[0] : blade[blade.length - 1];
+
+  return blade.map(p => ({
+    imgX: p.imgX,
+    imgY: p.imgY,
+    xMm: Math.abs(p.rotX - ago.rotX) / ppm,
+    yMm: (p.rotY - ago.rotY) / ppm,
+  })).sort((a, b) => a.xMm - b.xMm);
+}
+
+function sampleByMm(pts, intervalMm) {
+  if (!pts || pts.length === 0) return [];
+  const out = [pts[0]];
+  let lastMm = pts[0].xMm;
+  for (let i = 1; i < pts.length; i++) {
+    if (pts[i].xMm - lastMm >= intervalMm) {
+      out.push(pts[i]);
+      lastMm = pts[i].xMm;
+    }
+  }
+  return out;
 }
 
 function bladeDotCount(pts) {
   const intervalMm = parseFloat(elems.bladeDotInterval?.value) || 1;
-  const dotStep = Math.max(1, Math.round(intervalMm / 0.1));
-  return Math.floor(pts.length / dotStep);
+  return sampleByMm(pts, intervalMm).length;
 }
 
 function drawBladeEdgeCurve(pts) {
   if (pts.length < 2) return;
   const intervalMm = parseFloat(elems.bladeDotInterval?.value) || 1;
-  const dotStep = Math.max(1, Math.round(intervalMm / 0.1));
+  const dotPts = sampleByMm(pts, intervalMm);
 
   const drawOn = (canvas) => {
     if (!canvas || canvas.width === 0 || canvas.height === 0) return;
@@ -1641,12 +1611,10 @@ function drawBladeEdgeCurve(pts) {
     ctx.stroke();
     ctx.fillStyle = '#00ffff';
     ctx.shadowBlur = 0;
-    pts.forEach((p, i) => {
-      if (i % dotStep === 0) {
-        ctx.beginPath();
-        ctx.arc(p.imgX, p.imgY, mr, 0, Math.PI * 2);
-        ctx.fill();
-      }
+    dotPts.forEach(p => {
+      ctx.beginPath();
+      ctx.arc(p.imgX, p.imgY, mr, 0, Math.PI * 2);
+      ctx.fill();
     });
     ctx.restore();
   };
@@ -1658,8 +1626,7 @@ function drawBladeEdgeCurve(pts) {
 
 function exportBladeEdgeCsv(pts) {
   const intervalMm = parseFloat(elems.bladeDotInterval?.value) || 1;
-  const dotStep = Math.max(1, Math.round(intervalMm / 0.1));
-  const sampled = pts.filter((_, i) => i % dotStep === 0);
+  const sampled = sampleByMm(pts, intervalMm);
   const rows = sampled.map(p => `${p.xMm.toFixed(2)},${p.yMm.toFixed(2)}`);
   const csv = ['x_mm,y_mm', ...rows].join('\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
