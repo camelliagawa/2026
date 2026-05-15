@@ -75,8 +75,10 @@ const elems = {
   resAngle:           $('res-angle'),
   resCalib:           $('res-calib'),
   opencvStatus:       $('opencv-status'),
-  annotatedCanvas:    $('annotated-canvas'),
-  resultImageBox:     $('result-image-box'),
+  annotatedCanvas:         $('annotated-canvas'),
+  resultImageBox:          $('result-image-box'),
+  resultProcessedCanvas:   $('result-processed-canvas'),
+  resultProcessedImageBox: $('processed-image-box'),
   btnCalibFromCard:   $('btn-calib-from-card'),
   calibTapHint:       $('calib-tap-hint'),
   btnCancelCalibTap:  $('btn-cancel-calib-tap'),
@@ -827,6 +829,16 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
     if (state.params.showEdges) {
       cv.imshow(elems.processedCanvas, result);
     }
+
+    // Always show edge image in the results tab processed-image box
+    if (elems.resultProcessedCanvas && elems.resultProcessedImageBox) {
+      const edgeRgba = new cv.Mat();
+      cv.cvtColor(edges, edgeRgba, cv.COLOR_GRAY2RGBA);
+      cv.imshow(elems.resultProcessedCanvas, edgeRgba);
+      edgeRgba.delete();
+      elems.resultProcessedImageBox.classList.remove('hidden');
+    }
+
     elems.btnSaveImage.disabled = false;
 
   } catch (err) {
@@ -1038,11 +1050,7 @@ function estimateBladeLength(contour, rect) {
   const maxBin = smoothed.indexOf(Math.max(...smoothed));
   const tipSide = maxBin >= BINS / 2 ? 'left' : 'right';
 
-  // アゴ検出: contour の直角コーナーを最優先、見つからなければ刃線勾配にフォールバック
-  let junctionBin = findCornerJuncBin(pts, smoothed, maxBin, tipSide, BINS, minX, binSize);
-  if (junctionBin < 0) {
-    junctionBin = detectJuncBin(smoothed, maxY, maxBin, tipSide, BINS);
-  }
+  const junctionBin = detectJuncBin(smoothed, maxY, maxBin, tipSide, BINS);
 
   const tipBin  = tipSide === 'left' ? 0 : BINS - 1;
   const lengthPx = Math.abs(junctionBin - tipBin) * binSize;
@@ -1314,6 +1322,7 @@ elems.btnConfirmOk.addEventListener('click', () => {
 elems.btnConfirmRetry.addEventListener('click', () => {
   hideDetectionConfirm();
   elems.resultImageBox.classList.add('hidden');
+  if (elems.resultProcessedImageBox) elems.resultProcessedImageBox.classList.add('hidden');
   updateStatus('待機中');
   elems.resBladeLength.textContent = '--';
   elems.unitBladeLength.textContent = 'mm';
@@ -1399,99 +1408,10 @@ function autoDrawBladeCurve() {
   log(`刃渡り曲線描画: ${bladeDotCount(pts)}点`, 'detect');
 }
 
-// Find the blade-tang junction bin (アゴ) more accurately than just maxBin.
-// Estimates the handle (tang) width from the 3 extreme handle-side bins, then
-// uses the midpoint between tang and peak width as the threshold.
-// This adapts to any tang/blade width ratio.
-// Find アゴ by detecting the right-angle corner where the cutting edge meets
-// the handle bottom. The アゴ is a near-90° turn on the lower (cutting-edge)
-// side of the contour, located between the handle butt and the blade region.
-// Returns the bin index of the corner, or -1 if no qualifying corner is found.
-function findCornerJuncBin(rotPts, wSmoothed, maxBin, tipSide, BINS, minX, binSize) {
-  const globalMaxW = wSmoothed[maxBin];
-  if (globalMaxW === 0) return -1;
-
-  // Locate bladeMaxBin (same skip-handle-zone logic as detectJuncBin)
-  const skip = Math.round(BINS * 0.20);
-  let bladeMaxBin = maxBin, bladeMaxW = globalMaxW;
-  if (tipSide === 'right' && maxBin < skip) {
-    bladeMaxW = 0;
-    for (let i = skip; i < BINS; i++) {
-      if (wSmoothed[i] > bladeMaxW) { bladeMaxW = wSmoothed[i]; bladeMaxBin = i; }
-    }
-  } else if (tipSide === 'left' && maxBin >= BINS - skip) {
-    bladeMaxW = 0;
-    for (let i = BINS - 1 - skip; i >= 0; i--) {
-      if (wSmoothed[i] > bladeMaxW) { bladeMaxW = wSmoothed[i]; bladeMaxBin = i; }
-    }
-  }
-  if (bladeMaxW === 0) return -1;
-  const bladeMaxX = minX + bladeMaxBin * binSize;
-
-  // Identify the cutting-edge side as the lower half of rotated Y range
-  let yMin = Infinity, yMax = -Infinity;
-  for (let i = 0; i < rotPts.length; i++) {
-    const y = rotPts[i].y;
-    if (y < yMin) yMin = y;
-    if (y > yMax) yMax = y;
-  }
-  // Bias toward the lower edge: the アゴ corner sits roughly at the cutting-edge
-  // level, well below the spine/handle midline.
-  const yThr = yMin + (yMax - yMin) * 0.5;
-
-  // Walk the contour; at each point compute the turn angle from the previous
-  // segment to the next. Adjacent points are corner points (CHAIN_APPROX_SIMPLE),
-  // so segments are real edges.
-  // Ignore the first 15% of knife length (handle butt) to avoid false corners there.
-  const range = binSize * BINS;
-  const xButtSkip = tipSide === 'right'
-    ? minX + range * 0.15
-    : minX + range * 0.85;
-
-  const n = rotPts.length;
-  // Among qualifying corners pick the one FARTHEST from blade (= leftmost for
-  // tipSide='right'). This is Corner A — the handle-side right angle of the アゴ
-  // step, not the blade-side one. Using closest-to-blade previously landed on
-  // Corner B (too far into the blade, giving 166.6mm instead of ~180mm).
-  let bestHandleSideX = tipSide === 'right' ? Infinity : -Infinity;
-  let bestBin = -1;
-  for (let i = 0; i < n; i++) {
-    const p = rotPts[i];
-    if (p.y <= yThr) continue;
-    // Skip butt region
-    if (tipSide === 'right' ? p.x < xButtSkip : p.x > xButtSkip) continue;
-    // Must be in handle region (not past blade max)
-    if (tipSide === 'right' ? p.x >= bladeMaxX : p.x <= bladeMaxX) continue;
-
-    const a = rotPts[(i - 1 + n) % n];
-    const c = rotPts[(i + 1) % n];
-    const v1x = p.x - a.x, v1y = p.y - a.y;
-    const v2x = c.x - p.x, v2y = c.y - p.y;
-    const len1 = Math.hypot(v1x, v1y);
-    const len2 = Math.hypot(v2x, v2y);
-    if (len1 < 3 || len2 < 3) continue;
-
-    const dot = v1x * v2x + v1y * v2y;
-    const cross = v1x * v2y - v1y * v2x;
-    const turnDeg = Math.atan2(Math.abs(cross), dot) * 180 / Math.PI;
-    if (turnDeg < 50 || turnDeg > 130) continue;
-
-    if (tipSide === 'right' ? p.x < bestHandleSideX : p.x > bestHandleSideX) {
-      bestHandleSideX = p.x;
-      bestBin = Math.min(BINS - 1, Math.max(0, Math.floor((p.x - minX) / binSize)));
-    }
-  }
-
-  return bestBin;
-}
-
 function detectJuncBin(wSmoothed, bottomEdge, maxBin, tipSide, BINS) {
   const globalMaxW = wSmoothed[maxBin];
   if (globalMaxW === 0) return maxBin;
 
-  // If the global maximum is within the handle-end zone (first/last 20% of bins),
-  // it likely represents the handle/bolster rather than the blade heel.
-  // In that case, find the blade-region peak in the remaining 80% of bins.
   const skip = Math.round(BINS * 0.20);
   let bladeMaxBin = maxBin, bladeMaxW = globalMaxW;
   if (tipSide === 'right' && maxBin < skip) {
@@ -1508,10 +1428,9 @@ function detectJuncBin(wSmoothed, bottomEdge, maxBin, tipSide, BINS) {
     if (bladeMaxW === 0) return 0;
   }
 
-  // Smooth bottomEdge (3-point average) so single-bin noise doesn't dominate the slope.
-  // Skip Infinity / -Infinity bins.
+  // Smooth bottomEdge with 5-point average to suppress noise before differentiation.
   const beSm = bottomEdge.map((_, i) => {
-    const s = Math.max(0, i - 1), e = Math.min(BINS - 1, i + 1);
+    const s = Math.max(0, i - 2), e = Math.min(BINS - 1, i + 2);
     let sum = 0, n = 0;
     for (let j = s; j <= e; j++) {
       const v = bottomEdge[j];
@@ -1520,25 +1439,22 @@ function detectJuncBin(wSmoothed, bottomEdge, maxBin, tipSide, BINS) {
     return n > 0 ? sum / n : null;
   });
 
-  // The cutting edge has a sharp angle at the アゴ where it drops away from the
-  // handle bottom. In the rotated frame this shows up as a sharp jump in the
-  // bottom-edge Y (=bottomEdge) over 1–2 bins, larger than anywhere else on
-  // the blade (which is a smooth curve). Find the 2-bin window where bottomEdge
-  // increases the most and return the middle bin of that window.
-  const span = 2;
-  let bestPos = -1, bestSlope = 0;
+  // Second derivative of bottomEdge: アゴ is the onset of the steep drop in the
+  // cutting edge profile, which appears as maximum positive curvature (d2 peak)
+  // just before the slope becomes maximal.
+  let bestPos = -1, bestCurve = 0;
   if (tipSide === 'right') {
-    for (let i = 0; i + span <= bladeMaxBin; i++) {
-      if (beSm[i] === null || beSm[i + span] === null) continue;
-      const slope = beSm[i + span] - beSm[i];
-      if (slope > bestSlope) { bestSlope = slope; bestPos = i + 1; }
+    for (let i = 1; i < bladeMaxBin; i++) {
+      if (beSm[i - 1] === null || beSm[i] === null || beSm[i + 1] === null) continue;
+      const d2 = beSm[i + 1] - 2 * beSm[i] + beSm[i - 1];
+      if (d2 > bestCurve) { bestCurve = d2; bestPos = i; }
     }
     return bestPos === -1 ? 0 : bestPos;
   } else {
-    for (let i = BINS - 1; i - span >= bladeMaxBin; i--) {
-      if (beSm[i] === null || beSm[i - span] === null) continue;
-      const slope = beSm[i - span] - beSm[i];
-      if (slope > bestSlope) { bestSlope = slope; bestPos = i - 1; }
+    for (let i = BINS - 2; i > bladeMaxBin; i--) {
+      if (beSm[i - 1] === null || beSm[i] === null || beSm[i + 1] === null) continue;
+      const d2 = beSm[i + 1] - 2 * beSm[i] + beSm[i - 1];
+      if (d2 > bestCurve) { bestCurve = d2; bestPos = i; }
     }
     return bestPos === -1 ? BINS - 1 : bestPos;
   }
@@ -1598,8 +1514,7 @@ function extractBladeEdgeCurve() {
   });
   const maxBin  = wSmoothed.indexOf(Math.max(...wSmoothed));
   const tipSide = maxBin >= BINS / 2 ? 'left' : 'right';
-  let juncBin = findCornerJuncBin(rotPts, wSmoothed, maxBin, tipSide, BINS, minX, coarseBin);
-  if (juncBin < 0) juncBin = detectJuncBin(wSmoothed, coarseMaxY, maxBin, tipSide, BINS);
+  const juncBin = detectJuncBin(wSmoothed, coarseMaxY, maxBin, tipSide, BINS);
   const juncX_rot = minX + juncBin * coarseBin;
   const tipX_rot  = tipSide === 'left' ? minX : maxX;
 
@@ -1799,6 +1714,7 @@ elems.btnReset.addEventListener('click', () => {
     0, 0, elems.processedCanvas.width, elems.processedCanvas.height
   );
   elems.resultImageBox.classList.add('hidden');
+  if (elems.resultProcessedImageBox) elems.resultProcessedImageBox.classList.add('hidden');
   if (elems.bladeCurveStatus) elems.bladeCurveStatus.classList.add('hidden');
   updateBladeCurveBtn();
   log('全設定をリセット', 'warn');
