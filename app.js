@@ -1620,18 +1620,32 @@ function drawBladeEdgeCurve(pts) {
     });
 
     // Red dots at アゴ (first point) and 切先 (last point)
-    const endR = Math.max(8, Math.round(10 * scale));
+    const endR = Math.max(14, Math.round(18 * scale));
+    const fontSize = Math.max(28, Math.round(32 * scale));
     [[pts[0], 'アゴ'], [pts[pts.length - 1], '切先']].forEach(([p, label]) => {
-      ctx.fillStyle = '#ff3333';
+      // White outline ring for contrast against any background
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = Math.max(3, Math.round(4 * scale));
+      ctx.shadowColor = '#000000';
+      ctx.shadowBlur = Math.max(6, Math.round(8 * scale));
+      ctx.beginPath();
+      ctx.arc(p.imgX, p.imgY, endR + ctx.lineWidth, 0, Math.PI * 2);
+      ctx.stroke();
+      // Red fill with glow
+      ctx.fillStyle = '#ff2222';
       ctx.shadowColor = '#ff0000';
       ctx.shadowBlur = blur;
       ctx.beginPath();
       ctx.arc(p.imgX, p.imgY, endR, 0, Math.PI * 2);
       ctx.fill();
+      // Label with black outline for readability
       ctx.shadowBlur = 0;
-      ctx.fillStyle = '#ffffff';
-      ctx.font = `bold ${Math.max(20, Math.round(24 * scale))}px sans-serif`;
+      ctx.font = `bold ${fontSize}px sans-serif`;
       ctx.textBaseline = 'bottom';
+      ctx.lineWidth = Math.max(4, Math.round(5 * scale));
+      ctx.strokeStyle = '#000000';
+      ctx.strokeText(label, p.imgX + endR + 4, p.imgY - 4);
+      ctx.fillStyle = '#ffffff';
       ctx.fillText(label, p.imgX + endR + 4, p.imgY - 4);
     });
 
