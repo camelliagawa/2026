@@ -1490,13 +1490,90 @@ function gaussianSmoothArr(arr, emptyVal, sigma) {
 }
 
 
+// Fit a quadratic y = a·t² + b·t + c (t∈[0,1]) to blade points and resample smoothly.
+function fitSmoothBlade(blade, scanSign, cosA, sinA, cx, cy, ppm) {
+  if (blade.length < 4) return null;
+  const rx0 = blade[0].rotX, rxN = blade[blade.length - 1].rotX;
+  const span = rxN - rx0;
+  if (Math.abs(span) < 1) return null;
+  let s0 = 0, s1 = 0, s2 = 0, s3 = 0, s4 = 0, r0 = 0, r1 = 0, r2 = 0;
+  for (const p of blade) {
+    const t = (p.rotX - rx0) / span, y = p.rotY, t2 = t * t;
+    s0++; s1 += t; s2 += t2; s3 += t2 * t; s4 += t2 * t2;
+    r0 += y; r1 += t * y; r2 += t2 * y;
+  }
+  const M = [[s0, s1, s2, r0], [s1, s2, s3, r1], [s2, s3, s4, r2]];
+  for (let col = 0; col < 3; col++) {
+    let mr = col;
+    for (let row = col + 1; row < 3; row++)
+      if (Math.abs(M[row][col]) > Math.abs(M[mr][col])) mr = row;
+    if (mr !== col) [M[col], M[mr]] = [M[mr], M[col]];
+    if (Math.abs(M[col][col]) < 1e-12) return null;
+    for (let row = col + 1; row < 3; row++) {
+      const f = M[row][col] / M[col][col];
+      for (let j = col; j <= 3; j++) M[row][j] -= f * M[col][j];
+    }
+  }
+  const v = [0, 0, 0];
+  for (let i = 2; i >= 0; i--) {
+    v[i] = M[i][3];
+    for (let j = i + 1; j < 3; j++) v[i] -= M[i][j] * v[j];
+    v[i] /= M[i][i];
+  }
+  const [c, b, a] = v;
+  const ry0 = Math.max(0, c);
+  const out = [];
+  for (let rotX = rx0; rotX <= rxN + 0.5; rotX++) {
+    const t = (rotX - rx0) / span;
+    const rotY = Math.max(0, a * t * t + b * t + c);
+    const imgX = Math.round(cosA * rotX - scanSign * sinA * rotY + cx);
+    const imgY = Math.round(sinA * rotX + scanSign * cosA * rotY + cy);
+    out.push({ imgX, imgY, xMm: (rotX - rx0) / ppm, yMm: (rotY - ry0) / ppm });
+  }
+  return out.length >= 2 ? out : null;
+}
+
 function extractBladeEdgeCurve() {
   const canvas = elems.resultProcessedCanvas;
   if (!canvas || canvas.width === 0 || canvas.height === 0) return null;
   const ppm = state.calibPixelsPerMm;
-  if (!ppm || !state.lastRect) return null;
+  if (!ppm) return null;
 
-  const { angle: rawAngle, center, size } = state.lastRect;
+  // Derive knife rect from the edge canvas via findContours (self-contained detection).
+  let knifeRect = null;
+  if (window.cv) {
+    let em, gm, cv2, hm;
+    try {
+      em = cv.imread(canvas);
+      gm = new cv.Mat();
+      cv.cvtColor(em, gm, cv.COLOR_RGBA2GRAY);
+      cv2 = new cv.MatVector();
+      hm = new cv.Mat();
+      cv.findContours(gm, cv2, hm, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE);
+      let bestArea = 0, bestCnt = null;
+      for (let i = 0; i < cv2.size(); i++) {
+        const cnt = cv2.get(i);
+        const a = cv.contourArea(cnt);
+        if (a > bestArea) { bestArea = a; if (bestCnt) bestCnt.delete(); bestCnt = cnt; }
+        else cnt.delete();
+      }
+      if (bestCnt) {
+        const r = cv.minAreaRect(bestCnt);
+        const w = Math.max(r.size.width, r.size.height);
+        const h = Math.min(r.size.width, r.size.height);
+        if (h > 1 && w / h > 2.5) {
+          knifeRect = { angle: r.angle, center: { x: r.center.x, y: r.center.y },
+                        size: { width: r.size.width, height: r.size.height } };
+        }
+        bestCnt.delete();
+      }
+    } catch (e) { /* fall through to state.lastRect */ }
+    finally { em?.delete(); gm?.delete(); cv2?.delete(); hm?.delete(); }
+  }
+  knifeRect = knifeRect || state.lastRect;
+  if (!knifeRect) return null;
+
+  const { angle: rawAngle, center, size } = knifeRect;
   let angle = rawAngle;
   if (size.height > size.width) angle += 90;
   const cx = center.x, cy = center.y;
@@ -1539,7 +1616,9 @@ function extractBladeEdgeCurve() {
     const ys = arr.map(p => p.rotY);
     return Math.max(...ys) - Math.min(...ys);
   };
-  const raw = rotYRange(rawPos) >= rotYRange(rawNeg) ? rawPos : rawNeg;
+  const usePos = rotYRange(rawPos) >= rotYRange(rawNeg);
+  const raw = usePos ? rawPos : rawNeg;
+  const scanSign = usePos ? +1 : -1;
   if (raw.length < 20) return null;
 
   // Smooth rotY profile to suppress rivet/texture noise
@@ -1601,13 +1680,12 @@ function extractBladeEdgeCurve() {
   blade = blade.slice(0, kissEnd + 1);
   if (blade.length < 2) return null;
 
-  const ago = blade[0];
-  return blade.map(p => ({
-    imgX: p.imgX,
-    imgY: p.imgY,
-    xMm: Math.abs(p.rotX - ago.rotX) / ppm,
-    yMm: (p.rotY - ago.rotY) / ppm,
-  }));
+  return fitSmoothBlade(blade, scanSign, cosA, sinA, cx, cy, ppm)
+    || blade.map(p => ({
+      imgX: p.imgX, imgY: p.imgY,
+      xMm: Math.abs(p.rotX - blade[0].rotX) / ppm,
+      yMm: (p.rotY - blade[0].rotY) / ppm,
+    }));
 }
 
 function sampleByMm(pts, intervalMm) {
