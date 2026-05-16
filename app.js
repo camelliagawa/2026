@@ -1516,19 +1516,30 @@ function extractBladeEdgeCurve() {
     return pixels[idx] > 64 || pixels[idx + 1] > 64 || pixels[idx + 2] > 64;
   };
 
-  // Scan cutting edge: for each rotX column, find outermost pixel on cutting edge side.
-  // Start from OUTSIDE (1.1× halfHt) to ensure the first hit is the silhouette edge.
-  const raw = [];
-  for (let rotX = -halfLen; rotX <= halfLen; rotX += 2) {
-    for (let rotY = halfHt * 1.1; rotY > 0; rotY--) {
-      const ix = Math.round(cosA * rotX - sinA * rotY + cx);
-      const iy = Math.round(sinA * rotX + cosA * rotY + cy);
-      if (isEdge(ix, iy)) {
-        raw.push({ imgX: ix, imgY: iy, rotX, rotY });
-        break;
+  // Scan one side of the knife outline (sign=+1: below-center side, sign=-1: above-center).
+  // Start from OUTSIDE (1.1× halfHt) so the first hit is the silhouette edge, not interior.
+  const scanSide = (sign) => {
+    const pts = [];
+    for (let rotX = -halfLen; rotX <= halfLen; rotX += 2) {
+      for (let rotY = halfHt * 1.1; rotY > 0; rotY--) {
+        const ix = Math.round(cosA * rotX - sign * sinA * rotY + cx);
+        const iy = Math.round(sinA * rotX + sign * cosA * rotY + cy);
+        if (isEdge(ix, iy)) { pts.push({ imgX: ix, imgY: iy, rotX, rotY }); break; }
       }
     }
-  }
+    return pts;
+  };
+
+  // Cutting edge has far more rotY variation than the spine:
+  // it drops from a deep bolster (~half knife height) to nearly zero at the tip.
+  const rawPos = scanSide(+1);
+  const rawNeg = scanSide(-1);
+  const rotYRange = (arr) => {
+    if (arr.length < 10) return 0;
+    const ys = arr.map(p => p.rotY);
+    return Math.max(...ys) - Math.min(...ys);
+  };
+  const raw = rotYRange(rawPos) >= rotYRange(rawNeg) ? rawPos : rawNeg;
   if (raw.length < 20) return null;
 
   // Smooth rotY profile to suppress rivet/texture noise
@@ -1540,48 +1551,49 @@ function extractBladeEdgeCurve() {
     return sum / cnt;
   });
 
-  // Step 1: Determine handle side via maximum slope (= bolster transition direction)
+  // Step 1: Determine handle side via sign of max-slope transition (bolster rise)
   const WSPAN = Math.max(4, Math.round(raw.length * 0.05));
   const SKIP  = Math.round(raw.length * 0.08);
-  let bestSlope = 0;
+  let bestSlope = 0, bestSlopeIdx = SKIP + WSPAN;
   for (let i = SKIP + WSPAN; i < raw.length - SKIP - WSPAN; i++) {
     const slope = smY[i + WSPAN] - smY[i - WSPAN];
-    if (Math.abs(slope) > Math.abs(bestSlope)) bestSlope = slope;
+    if (Math.abs(slope) > Math.abs(bestSlope)) { bestSlope = slope; bestSlopeIdx = i; }
   }
-  // bestSlope > 0 → rotY increases left→right → handle is on LEFT
+  // bestSlope > 0 → rotY rises left→right → handle is on LEFT
   const handleOnLeft = bestSlope > 0;
 
-  // Step 2: Handle level = average smY in the far 15% (pure handle zone)
-  const hZoneN = Math.max(1, Math.round(raw.length * 0.15));
-  const hZone  = handleOnLeft ? smY.slice(0, hZoneN) : smY.slice(-hZoneN);
-  const handleLevel = hZone.reduce((a, b) => a + b, 0) / hZone.length;
-  const bladeMaxSmY  = Math.max(...smY);
+  // Fine-grained slope array for locating the exact start of the bolster rise
+  const SS = Math.max(2, Math.round(raw.length * 0.02));
+  const slopes = smY.map((_, i) => {
+    const i0 = Math.max(0, i - SS), i1 = Math.min(raw.length - 1, i + SS);
+    return (smY[i1] - smY[i0]) / (i1 - i0);
+  });
+  // Peak slope magnitude in the handle→blade direction at bestSlopeIdx
+  const peakSlope = handleOnLeft ? slopes[bestSlopeIdx] : -slopes[bestSlopeIdx];
 
-  // Step 3: アゴ = the RIGHT-ANGLE CORNER
-  // First point (scanning from handle side) where smY exceeds handleLevel + 20% of step.
-  // This locates the exact start of the bolster rise, not the midpoint.
-  const agoThresh = handleLevel + (bladeMaxSmY - handleLevel) * 0.20;
+  // Step 2: アゴ = START of the steepest rise (right-angle corner).
+  // Scan backward from the peak-slope point toward the handle until
+  // the slope falls below 15% of peak — that is where the flat handle ends.
   let agoIdx = handleOnLeft ? Math.round(raw.length * 0.3) : Math.round(raw.length * 0.7);
   if (handleOnLeft) {
-    for (let j = SKIP; j < raw.length; j++) {
-      if (smY[j] > agoThresh) { agoIdx = j; break; }
+    for (let j = bestSlopeIdx; j >= SKIP; j--) {
+      if (slopes[j] < peakSlope * 0.15) { agoIdx = j; break; }
     }
   } else {
-    for (let j = raw.length - 1 - SKIP; j >= 0; j--) {
-      if (smY[j] > agoThresh) { agoIdx = j; break; }
+    for (let j = bestSlopeIdx; j <= raw.length - 1 - SKIP; j++) {
+      if (-slopes[j] < peakSlope * 0.15) { agoIdx = j; break; }
     }
   }
 
-  // Build blade array from アゴ to tip end, always in アゴ→切先 order
+  // Build blade array (アゴ → 切先), always in アゴ-first order
   let blade = handleOnLeft
     ? raw.slice(agoIdx)
     : raw.slice(0, agoIdx + 1).reverse();
   if (blade.length < 4) return null;
 
-  // Step 4: 切先 = the ACUTE ANGLE (cutting edge converges with spine)
-  // Last blade point where rotY ≥ 20% of peak — closer to the actual tip than 30%.
+  // Step 3: 切先 = ACUTE TIP — last blade point where rotY ≥ 15% of peak
   const peakRotY = blade.reduce((m, p) => Math.max(m, p.rotY), 0);
-  const kissThresh = peakRotY * 0.20;
+  const kissThresh = peakRotY * 0.15;
   let kissEnd = blade.length - 1;
   for (let i = blade.length - 1; i > 0; i--) {
     if (blade[i].rotY >= kissThresh) { kissEnd = i; break; }
