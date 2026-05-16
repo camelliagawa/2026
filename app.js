@@ -28,7 +28,9 @@ const state = {
   lastRect: null,
   lastBladeCurvePts: null,
   preCurveImageData: null,
-  manualBlade: { step: 0, ago: null }, // step 0=inactive 1=awaiting ago 2=awaiting kissaki
+  edgeCanvasImageData: null,
+  manualBlade: { step: 0, ago: null, kissaki: null, dragging: null },
+  // step: 0=inactive 1=awaiting ago 2=awaiting kissaki 3=both placed (drag enabled)
   params: {
     cannyLow: 50,
     cannyHigh: 150,
@@ -729,8 +731,6 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
       src.copyTo(result);
     }
 
-    // Edge image must be drawn BEFORE knife detection processing so that
-    // autoDrawBladeCurve() can overlay the cyan curve on top of it.
     if (state.params.showEdges) {
       cv.imshow(elems.processedCanvas, result);
     }
@@ -739,6 +739,9 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
       cv.cvtColor(edgesDisplay, edgeRgba, cv.COLOR_GRAY2RGBA);
       cv.imshow(elems.resultProcessedCanvas, edgeRgba);
       edgeRgba.delete();
+      // Cache the clean edge image for manual selection snap/trace/redraw
+      const ec = elems.resultProcessedCanvas;
+      state.edgeCanvasImageData = ec.getContext('2d').getImageData(0, 0, ec.width, ec.height);
       elems.resultProcessedImageBox.classList.remove('hidden');
     }
 
@@ -838,7 +841,6 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
         size:   { width: bestRect.rect.size.width, height: bestRect.rect.size.height },
       };
       updateBladeCurveBtn();
-      autoDrawBladeCurve();
       bestContour.delete();
     } else {
       updateStatus('包丁未検出');
@@ -1215,7 +1217,6 @@ function applyCalibration() {
   });
   if (state.lastCanvas && state.lastRectPts && state.lastBladeResult) {
     drawAnnotatedResult(state.lastCanvas, state.lastRectPts, state.lastBladeResult, ppm);
-    autoDrawBladeCurve();
   }
 }
 
@@ -1397,21 +1398,8 @@ function exportCsv() {
 // =====================================================================
 function updateBladeCurveBtn() {
   if (elems.btnBladeCurve) {
-    elems.btnBladeCurve.disabled = !(state.calibPixelsPerMm && state.lastRect);
+    elems.btnBladeCurve.disabled = !state.lastBladeCurvePts;
   }
-}
-
-function autoDrawBladeCurve() {
-  if (!state.calibPixelsPerMm || !state.lastRect) return;
-  const pts = extractBladeEdgeCurve();
-  if (!pts || pts.length === 0) return;
-  state.lastBladeCurvePts = pts;
-  drawBladeEdgeCurve(pts);
-  if (elems.bladeCurveStatus) {
-    elems.bladeCurveStatus.textContent = `✓ 刃渡り曲線描画済み (${bladeDotCount(pts)}点)`;
-    elems.bladeCurveStatus.classList.remove('hidden');
-  }
-  log(`刃渡り曲線描画: ${bladeDotCount(pts)}点`, 'detect');
 }
 
 function detectJuncBin(wSmoothed, bottomEdge, maxBin, tipSide, BINS) {
@@ -1498,21 +1486,19 @@ function gaussianSmoothArr(arr, emptyVal, sigma) {
 // 手動アゴ・切先指定
 // =====================================================================
 
+// Snap click/touch to nearest white (edge) pixel using cached clean edge data.
 function snapToEdge(canvas, x, y, radius) {
-  const ctx = canvas.getContext('2d');
-  const { width: W, height: H } = canvas;
-  const px = ctx.getImageData(Math.max(0, x - radius), Math.max(0, y - radius),
-                              Math.min(radius * 2 + 1, W - Math.max(0, x - radius)),
-                              Math.min(radius * 2 + 1, H - Math.max(0, y - radius))).data;
-  // Full canvas read is simpler for correctness
-  const full = ctx.getImageData(0, 0, W, H).data;
+  const W = canvas.width, H = canvas.height;
+  const src = state.edgeCanvasImageData;
+  if (!src) return { imgX: x, imgY: y };
+  const px = src.data;
   let bestDist = radius + 1, bestX = x, bestY = y;
   for (let dy = -radius; dy <= radius; dy++) {
     for (let dx = -radius; dx <= radius; dx++) {
       const ix = x + dx, iy = y + dy;
       if (ix < 0 || ix >= W || iy < 0 || iy >= H) continue;
       const i = (iy * W + ix) * 4;
-      if (full[i] > 64 || full[i + 1] > 64 || full[i + 2] > 64) {
+      if (px[i] > 64 || px[i + 1] > 64 || px[i + 2] > 64) {
         const d = Math.sqrt(dx * dx + dy * dy);
         if (d < bestDist) { bestDist = d; bestX = ix; bestY = iy; }
       }
@@ -1521,15 +1507,17 @@ function snapToEdge(canvas, x, y, radius) {
   return { imgX: bestX, imgY: bestY };
 }
 
+// Trace white edge pixels between ago and kissaki, fit quadratic, return pts[].
 function traceEdgeBetween(canvas, ago, kissaki) {
   const ppm = state.calibPixelsPerMm;
-  if (!ppm) return null;
+  const src = state.edgeCanvasImageData;
+  if (!ppm || !src) return null;
   const { width: W, height: H } = canvas;
-  const full = canvas.getContext('2d').getImageData(0, 0, W, H).data;
+  const px = src.data;
   const isEdge = (ix, iy) => {
     if (ix < 0 || ix >= W || iy < 0 || iy >= H) return false;
     const i = (iy * W + ix) * 4;
-    return full[i] > 64 || full[i + 1] > 64 || full[i + 2] > 64;
+    return px[i] > 64 || px[i + 1] > 64 || px[i + 2] > 64;
   };
 
   const x0 = ago.imgX, y0 = ago.imgY;
@@ -1554,7 +1542,7 @@ function traceEdgeBetween(canvas, ago, kissaki) {
   }
   if (rawPts.length < 4) return null;
 
-  // Quadratic least squares in image space: imgY ≈ a·t² + b·t + c (t∈[0,1])
+  // Quadratic least squares: imgY ≈ a·t² + b·t + c (t∈[0,1])
   const n = rawPts.length;
   let s0 = 0, s1 = 0, s2 = 0, s3 = 0, s4 = 0, r0 = 0, r1 = 0, r2 = 0;
   for (let i = 0; i < n; i++) {
@@ -1581,11 +1569,9 @@ function traceEdgeBetween(canvas, ago, kissaki) {
     v[i] /= M[i][i];
   }
   const [c, b, a] = v;
-
-  // Resample the fitted curve at every integer x step
   const signX = totalDX >= 0 ? 1 : -1;
-  const out = [];
   const xSteps = Math.abs(totalDX);
+  const out = [];
   for (let s = 0; s <= xSteps; s++) {
     const t = xSteps === 0 ? 0 : s / xSteps;
     const imgX = x0 + signX * s;
@@ -1593,6 +1579,43 @@ function traceEdgeBetween(canvas, ago, kissaki) {
     out.push({ imgX, imgY, xMm: s / ppm, yMm: (imgY - y0) / ppm });
   }
   return out.length >= 2 ? out : null;
+}
+
+// Restore clean edge image, draw curve + dots, update measurement display.
+function redrawManualBladeOverlay() {
+  const canvas = elems.resultProcessedCanvas;
+  if (!canvas || !state.edgeCanvasImageData) return;
+  canvas.getContext('2d').putImageData(state.edgeCanvasImageData, 0, 0);
+
+  const mb = state.manualBlade;
+  // Draw アゴ-only preview dot when step=2 (kissaki not yet placed)
+  if (mb.ago && !mb.kissaki) {
+    const ctx = canvas.getContext('2d');
+    const r = Math.max(10, canvas.width / 60);
+    ctx.save();
+    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(mb.ago.imgX, mb.ago.imgY, r + 3, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#ff2222'; ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 14;
+    ctx.beginPath(); ctx.arc(mb.ago.imgX, mb.ago.imgY, r, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    return;
+  }
+  if (!mb.ago || !mb.kissaki) return;
+
+  const pts = traceEdgeBetween(canvas, mb.ago, mb.kissaki);
+  if (!pts || pts.length < 2) return;
+  state.lastBladeCurvePts = pts;
+  drawBladeEdgeCurve(pts);
+
+  const lenMm = pts[pts.length - 1].xMm;
+  if (elems.resBladeLength) {
+    elems.resBladeLength.textContent = lenMm.toFixed(1);
+    elems.unitBladeLength.textContent = 'mm';
+  }
+  if (elems.bladeCurveStatus) {
+    elems.bladeCurveStatus.textContent = `✓ 手動指定 (${bladeDotCount(pts)}点) ${lenMm.toFixed(1)} mm`;
+    elems.bladeCurveStatus.classList.remove('hidden');
+  }
 }
 
 function updateManualBladeHint(text) {
@@ -1606,277 +1629,85 @@ function updateManualBladeHint(text) {
 }
 
 function startManualBladeSelect() {
-  state.manualBlade = { step: 1, ago: null };
-  elems.resultProcessedCanvas?.classList.add('manual-selecting');
+  state.manualBlade = { step: 1, ago: null, kissaki: null, dragging: null };
+  const canvas = elems.resultProcessedCanvas;
+  if (canvas && state.edgeCanvasImageData) {
+    canvas.getContext('2d').putImageData(state.edgeCanvasImageData, 0, 0);
+  }
+  canvas?.classList.add('manual-selecting');
   elems.btnManualBlade?.classList.add('hidden');
   elems.btnManualBladeReset?.classList.remove('hidden');
   updateManualBladeHint('① アゴをタップ →');
 }
 
-function resetManualBladeSelect() {
-  state.manualBlade = { step: 0, ago: null };
-  elems.resultProcessedCanvas?.classList.remove('manual-selecting');
-  elems.btnManualBlade?.classList.remove('hidden');
-  elems.btnManualBladeReset?.classList.add('hidden');
-  updateManualBladeHint(null);
-  // Redraw edge image without manual overlay
-  if (state.lastBladeCurvePts) {
-    drawBladeEdgeCurve(state.lastBladeCurvePts);
-  }
-}
-
-function onEdgeCanvasClick(e) {
-  if (state.manualBlade.step === 0) return;
+function edgeCanvasCoords(e) {
   const canvas = elems.resultProcessedCanvas;
-  if (!canvas) return;
   const rect = canvas.getBoundingClientRect();
-  const scaleX = canvas.width / rect.width;
-  const scaleY = canvas.height / rect.height;
-  const rawX = Math.round((e.clientX - rect.left) * scaleX);
-  const rawY = Math.round((e.clientY - rect.top) * scaleY);
-  const snapped = snapToEdge(canvas, rawX, rawY, 30);
-
-  if (state.manualBlade.step === 1) {
-    state.manualBlade.ago = snapped;
-    state.manualBlade.step = 2;
-    // Draw アゴ dot preview
-    const ctx = canvas.getContext('2d');
-    ctx.save();
-    ctx.fillStyle = '#ff2222';
-    ctx.shadowColor = '#ff0000';
-    ctx.shadowBlur = 12;
-    ctx.beginPath();
-    ctx.arc(snapped.imgX, snapped.imgY, Math.max(8, canvas.width / 80), 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-    updateManualBladeHint('② 切先をタップ →');
-  } else if (state.manualBlade.step === 2) {
-    const ago = state.manualBlade.ago;
-    const kissaki = snapped;
-    state.manualBlade.step = 0;
-    elems.resultProcessedCanvas?.classList.remove('manual-selecting');
-    elems.btnManualBlade?.classList.remove('hidden');
-    elems.btnManualBladeReset?.classList.remove('hidden');
-
-    const pts = traceEdgeBetween(canvas, ago, kissaki);
-    if (!pts || pts.length < 2) {
-      updateManualBladeHint('⚠ トレース失敗。やり直してください');
-      elems.resultProcessedCanvas?.classList.remove('manual-selecting');
-      return;
-    }
-    state.lastBladeCurvePts = pts;
-    drawBladeEdgeCurve(pts);
-    const lenMm = pts[pts.length - 1].xMm;
-    if (elems.resBladeLength) {
-      elems.resBladeLength.textContent = lenMm.toFixed(1);
-      elems.unitBladeLength.textContent = 'mm';
-    }
-    if (elems.bladeCurveStatus) {
-      elems.bladeCurveStatus.textContent = `✓ 手動指定 (${bladeDotCount(pts)}点) ${lenMm.toFixed(1)} mm`;
-      elems.bladeCurveStatus.classList.remove('hidden');
-    }
-    updateManualBladeHint('完了 ✓　やり直す場合は「やり直し」ボタンを押してください');
-    log(`手動刃渡り曲線: ${lenMm.toFixed(1)} mm (${bladeDotCount(pts)}点)`, 'detect');
-  }
+  return {
+    x: Math.round((e.clientX - rect.left) * canvas.width / rect.width),
+    y: Math.round((e.clientY - rect.top) * canvas.height / rect.height),
+  };
 }
 
-// Fit a quadratic y = a·t² + b·t + c (t∈[0,1]) to blade points and resample smoothly.
-function fitSmoothBlade(blade, scanSign, cosA, sinA, cx, cy, ppm) {
-  if (blade.length < 4) return null;
-  const rx0 = blade[0].rotX, rxN = blade[blade.length - 1].rotX;
-  const span = rxN - rx0;
-  if (Math.abs(span) < 1) return null;
-  let s0 = 0, s1 = 0, s2 = 0, s3 = 0, s4 = 0, r0 = 0, r1 = 0, r2 = 0;
-  for (const p of blade) {
-    const t = (p.rotX - rx0) / span, y = p.rotY, t2 = t * t;
-    s0++; s1 += t; s2 += t2; s3 += t2 * t; s4 += t2 * t2;
-    r0 += y; r1 += t * y; r2 += t2 * y;
-  }
-  const M = [[s0, s1, s2, r0], [s1, s2, s3, r1], [s2, s3, s4, r2]];
-  for (let col = 0; col < 3; col++) {
-    let mr = col;
-    for (let row = col + 1; row < 3; row++)
-      if (Math.abs(M[row][col]) > Math.abs(M[mr][col])) mr = row;
-    if (mr !== col) [M[col], M[mr]] = [M[mr], M[col]];
-    if (Math.abs(M[col][col]) < 1e-12) return null;
-    for (let row = col + 1; row < 3; row++) {
-      const f = M[row][col] / M[col][col];
-      for (let j = col; j <= 3; j++) M[row][j] -= f * M[col][j];
-    }
-  }
-  const v = [0, 0, 0];
-  for (let i = 2; i >= 0; i--) {
-    v[i] = M[i][3];
-    for (let j = i + 1; j < 3; j++) v[i] -= M[i][j] * v[j];
-    v[i] /= M[i][i];
-  }
-  const [c, b, a] = v;
-  const ry0 = Math.max(0, c);
-  const out = [];
-  for (let rotX = rx0; rotX <= rxN + 0.5; rotX++) {
-    const t = (rotX - rx0) / span;
-    const rotY = Math.max(0, a * t * t + b * t + c);
-    const imgX = Math.round(cosA * rotX - scanSign * sinA * rotY + cx);
-    const imgY = Math.round(sinA * rotX + scanSign * cosA * rotY + cy);
-    out.push({ imgX, imgY, xMm: (rotX - rx0) / ppm, yMm: (rotY - ry0) / ppm });
-  }
-  return out.length >= 2 ? out : null;
-}
-
-function extractBladeEdgeCurve() {
+function onEdgePointerDown(e) {
+  const mb = state.manualBlade;
+  if (mb.step === 0) return;
   const canvas = elems.resultProcessedCanvas;
-  if (!canvas || canvas.width === 0 || canvas.height === 0) return null;
-  const ppm = state.calibPixelsPerMm;
-  if (!ppm) return null;
+  const { x, y } = edgeCanvasCoords(e);
 
-  // Derive knife rect from the edge canvas via findContours (self-contained detection).
-  let knifeRect = null;
-  if (window.cv) {
-    let em, gm, cv2, hm;
-    try {
-      em = cv.imread(canvas);
-      gm = new cv.Mat();
-      cv.cvtColor(em, gm, cv.COLOR_RGBA2GRAY);
-      cv2 = new cv.MatVector();
-      hm = new cv.Mat();
-      cv.findContours(gm, cv2, hm, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE);
-      let bestArea = 0, bestCnt = null;
-      for (let i = 0; i < cv2.size(); i++) {
-        const cnt = cv2.get(i);
-        const a = cv.contourArea(cnt);
-        if (a > bestArea) { bestArea = a; if (bestCnt) bestCnt.delete(); bestCnt = cnt; }
-        else cnt.delete();
+  if (mb.step === 1) {
+    mb.ago = snapToEdge(canvas, x, y, 30);
+    mb.step = 2;
+    redrawManualBladeOverlay();
+    updateManualBladeHint('② 切先をタップ →');
+    return;
+  }
+
+  if (mb.step === 2) {
+    mb.kissaki = snapToEdge(canvas, x, y, 30);
+    mb.step = 3;
+    canvas.classList.remove('manual-selecting');
+    elems.btnManualBlade?.classList.remove('hidden');
+    redrawManualBladeOverlay();
+    updateManualBladeHint('完了 ✓　赤丸をドラッグして調整できます');
+    log(`手動刃渡り曲線: ${state.lastBladeCurvePts ? state.lastBladeCurvePts[state.lastBladeCurvePts.length-1].xMm.toFixed(1) : '?'} mm`, 'detect');
+    updateBladeCurveBtn();
+    return;
+  }
+
+  if (mb.step === 3) {
+    const HIT_R = Math.max(30, canvas.width / 25);
+    const checkDot = (dot, name) => {
+      if (!dot) return false;
+      const dx = x - dot.imgX, dy = y - dot.imgY;
+      if (dx * dx + dy * dy <= HIT_R * HIT_R) {
+        mb.dragging = name;
+        canvas.setPointerCapture(e.pointerId);
+        e.preventDefault();
+        return true;
       }
-      if (bestCnt) {
-        const r = cv.minAreaRect(bestCnt);
-        const w = Math.max(r.size.width, r.size.height);
-        const h = Math.min(r.size.width, r.size.height);
-        if (h > 1 && w / h > 2.5) {
-          knifeRect = { angle: r.angle, center: { x: r.center.x, y: r.center.y },
-                        size: { width: r.size.width, height: r.size.height } };
-        }
-        bestCnt.delete();
-      }
-    } catch (e) { /* fall through to state.lastRect */ }
-    finally { em?.delete(); gm?.delete(); cv2?.delete(); hm?.delete(); }
+      return false;
+    };
+    checkDot(mb.ago, 'ago') || checkDot(mb.kissaki, 'kissaki');
   }
-  knifeRect = knifeRect || state.lastRect;
-  if (!knifeRect) return null;
-
-  const { angle: rawAngle, center, size } = knifeRect;
-  let angle = rawAngle;
-  if (size.height > size.width) angle += 90;
-  const cx = center.x, cy = center.y;
-  const rad = angle * Math.PI / 180;
-  const cosA = Math.cos(rad), sinA = Math.sin(rad);
-  const W = canvas.width, H = canvas.height;
-  const halfLen = Math.max(size.width, size.height) / 2;
-  const halfHt  = Math.min(size.width, size.height) / 2;
-
-  const ctx = canvas.getContext('2d');
-  const idata = ctx.getImageData(0, 0, W, H);
-  const pixels = idata.data;
-
-  const isEdge = (ix, iy) => {
-    if (ix < 0 || ix >= W || iy < 0 || iy >= H) return false;
-    const idx = (iy * W + ix) * 4;
-    return pixels[idx] > 64 || pixels[idx + 1] > 64 || pixels[idx + 2] > 64;
-  };
-
-  // Scan one side of the knife outline (sign=+1: below-center side, sign=-1: above-center).
-  // Start from OUTSIDE (1.1× halfHt) so the first hit is the silhouette edge, not interior.
-  const scanSide = (sign) => {
-    const pts = [];
-    for (let rotX = -halfLen; rotX <= halfLen; rotX += 2) {
-      for (let rotY = halfHt * 1.1; rotY > 0; rotY--) {
-        const ix = Math.round(cosA * rotX - sign * sinA * rotY + cx);
-        const iy = Math.round(sinA * rotX + sign * cosA * rotY + cy);
-        if (isEdge(ix, iy)) { pts.push({ imgX: ix, imgY: iy, rotX, rotY }); break; }
-      }
-    }
-    return pts;
-  };
-
-  // Cutting edge has far more rotY variation than the spine:
-  // it drops from a deep bolster (~half knife height) to nearly zero at the tip.
-  const rawPos = scanSide(+1);
-  const rawNeg = scanSide(-1);
-  const rotYRange = (arr) => {
-    if (arr.length < 10) return 0;
-    const ys = arr.map(p => p.rotY);
-    return Math.max(...ys) - Math.min(...ys);
-  };
-  const usePos = rotYRange(rawPos) >= rotYRange(rawNeg);
-  const raw = usePos ? rawPos : rawNeg;
-  const scanSign = usePos ? +1 : -1;
-  if (raw.length < 20) return null;
-
-  // Smooth rotY profile to suppress rivet/texture noise
-  const SSPAN = Math.max(3, Math.round(raw.length * 0.03));
-  const smY = raw.map((_, i) => {
-    const s = Math.max(0, i - SSPAN), e = Math.min(raw.length - 1, i + SSPAN);
-    let sum = 0, cnt = 0;
-    for (let j = s; j <= e; j++) { sum += raw[j].rotY; cnt++; }
-    return sum / cnt;
-  });
-
-  // Step 1: Determine handle side via sign of max-slope transition (bolster rise)
-  const WSPAN = Math.max(4, Math.round(raw.length * 0.05));
-  const SKIP  = Math.round(raw.length * 0.08);
-  let bestSlope = 0, bestSlopeIdx = SKIP + WSPAN;
-  for (let i = SKIP + WSPAN; i < raw.length - SKIP - WSPAN; i++) {
-    const slope = smY[i + WSPAN] - smY[i - WSPAN];
-    if (Math.abs(slope) > Math.abs(bestSlope)) { bestSlope = slope; bestSlopeIdx = i; }
-  }
-  // bestSlope > 0 → rotY rises left→right → handle is on LEFT
-  const handleOnLeft = bestSlope > 0;
-
-  // Fine-grained slope array for locating the exact start of the bolster rise
-  const SS = Math.max(2, Math.round(raw.length * 0.02));
-  const slopes = smY.map((_, i) => {
-    const i0 = Math.max(0, i - SS), i1 = Math.min(raw.length - 1, i + SS);
-    return (smY[i1] - smY[i0]) / (i1 - i0);
-  });
-  // Peak slope magnitude in the handle→blade direction at bestSlopeIdx
-  const peakSlope = handleOnLeft ? slopes[bestSlopeIdx] : -slopes[bestSlopeIdx];
-
-  // Step 2: アゴ = START of the steepest rise (right-angle corner).
-  // Scan backward from the peak-slope point toward the handle until
-  // the slope falls below 8% of peak — that is where the flat handle ends.
-  let agoIdx = handleOnLeft ? Math.round(raw.length * 0.3) : Math.round(raw.length * 0.7);
-  if (handleOnLeft) {
-    for (let j = bestSlopeIdx; j >= SKIP; j--) {
-      if (slopes[j] < peakSlope * 0.08) { agoIdx = j; break; }
-    }
-  } else {
-    for (let j = bestSlopeIdx; j <= raw.length - 1 - SKIP; j++) {
-      if (-slopes[j] < peakSlope * 0.08) { agoIdx = j; break; }
-    }
-  }
-
-  // Build blade array (アゴ → 切先), always in アゴ-first order
-  let blade = handleOnLeft
-    ? raw.slice(agoIdx)
-    : raw.slice(0, agoIdx + 1).reverse();
-  if (blade.length < 4) return null;
-
-  // Step 3: 切先 = ACUTE TIP — last blade point where rotY ≥ 8% of peak
-  const peakRotY = blade.reduce((m, p) => Math.max(m, p.rotY), 0);
-  const kissThresh = peakRotY * 0.08;
-  let kissEnd = blade.length - 1;
-  for (let i = blade.length - 1; i > 0; i--) {
-    if (blade[i].rotY >= kissThresh) { kissEnd = i; break; }
-  }
-  blade = blade.slice(0, kissEnd + 1);
-  if (blade.length < 2) return null;
-
-  return fitSmoothBlade(blade, scanSign, cosA, sinA, cx, cy, ppm)
-    || blade.map(p => ({
-      imgX: p.imgX, imgY: p.imgY,
-      xMm: Math.abs(p.rotX - blade[0].rotX) / ppm,
-      yMm: (p.rotY - blade[0].rotY) / ppm,
-    }));
 }
+
+function onEdgePointerMove(e) {
+  const mb = state.manualBlade;
+  if (!mb.dragging) return;
+  e.preventDefault();
+  const canvas = elems.resultProcessedCanvas;
+  const { x, y } = edgeCanvasCoords(e);
+  const snapped = snapToEdge(canvas, x, y, 40);
+  if (mb.dragging === 'ago') mb.ago = snapped;
+  else mb.kissaki = snapped;
+  redrawManualBladeOverlay();
+}
+
+function onEdgePointerUp() {
+  state.manualBlade.dragging = null;
+}
+
 
 function sampleByMm(pts, intervalMm) {
   if (!pts || pts.length === 0) return [];
@@ -1981,23 +1812,16 @@ function exportBladeEdgeCsv(pts) {
 }
 
 elems.btnBladeCurve.addEventListener('click', () => {
-  const pts = extractBladeEdgeCurve();
+  const pts = state.lastBladeCurvePts;
   if (!pts || pts.length === 0) {
-    log('刃渡り曲線を抽出できませんでした', 'warn');
+    log('先にエッジ画像でアゴ・切先を手動指定してください', 'warn');
     if (elems.bladeCurveStatus) {
-      elems.bladeCurveStatus.textContent = '⚠ 抽出失敗';
+      elems.bladeCurveStatus.textContent = '⚠ 曲線未指定';
       elems.bladeCurveStatus.classList.remove('hidden');
     }
     return;
   }
-  state.lastBladeCurvePts = pts;
-  drawBladeEdgeCurve(pts);
   exportBladeEdgeCsv(pts);
-  if (elems.bladeCurveStatus) {
-    elems.bladeCurveStatus.textContent = `✓ 刃渡り曲線描画済み (${bladeDotCount(pts)}点)`;
-    elems.bladeCurveStatus.classList.remove('hidden');
-  }
-  log(`刃渡り曲線描画: ${bladeDotCount(pts)}点`, 'detect');
 });
 
 elems.bladeDotInterval?.addEventListener('input', () => {
@@ -2013,8 +1837,11 @@ elems.bladeDotInterval?.addEventListener('input', () => {
 // 手動アゴ・切先指定 イベント
 // =====================================================================
 elems.btnManualBlade?.addEventListener('click', startManualBladeSelect);
-elems.btnManualBladeReset?.addEventListener('click', resetManualBladeSelect);
-elems.resultProcessedCanvas?.addEventListener('click', onEdgeCanvasClick);
+elems.btnManualBladeReset?.addEventListener('click', startManualBladeSelect); // reset = restart from step 1
+elems.resultProcessedCanvas?.addEventListener('pointerdown', onEdgePointerDown);
+elems.resultProcessedCanvas?.addEventListener('pointermove', onEdgePointerMove, { passive: false });
+elems.resultProcessedCanvas?.addEventListener('pointerup', onEdgePointerUp);
+elems.resultProcessedCanvas?.addEventListener('pointercancel', onEdgePointerUp);
 
 // =====================================================================
 // 画像保存
@@ -2032,7 +1859,8 @@ elems.btnSaveImage.addEventListener('click', () => {
 // =====================================================================
 elems.btnReset.addEventListener('click', () => {
   exitManualModeQuiet();
-  state.manualBlade = { step: 0, ago: null };
+  state.manualBlade = { step: 0, ago: null, kissaki: null, dragging: null };
+  state.edgeCanvasImageData = null;
   elems.resultProcessedCanvas?.classList.remove('manual-selecting');
   elems.btnManualBlade?.classList.remove('hidden');
   elems.btnManualBladeReset?.classList.add('hidden');
