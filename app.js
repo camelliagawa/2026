@@ -35,7 +35,7 @@ const state = {
     cannyLow: 50,
     cannyHigh: 150,
     minArea: 2000,
-    noiseMinArea: 80,
+    noiseMinArea: 0,
     dotRadius: 5,
     showEdges: true,
     showContours: true,
