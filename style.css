@@ -862,3 +862,6 @@ details[open] .advanced-summary::before {
     min-height: 36px;
   }
 }
+
+/* Manual blade selection */
+#result-processed-canvas.manual-selecting { cursor: crosshair; }
