@@ -35,6 +35,8 @@ const state = {
     cannyLow: 50,
     cannyHigh: 150,
     minArea: 2000,
+    noiseMinArea: 200,
+    dotRadius: 5,
     showEdges: true,
     showContours: true,
   },
@@ -59,6 +61,10 @@ const elems = {
   cannyHighVal:       $('canny-high-val'),
   minArea:            $('min-area'),
   minAreaVal:         $('min-area-val'),
+  noiseMinArea:       $('noise-min-area'),
+  noiseMinAreaVal:    $('noise-min-area-val'),
+  dotRadius:          $('dot-radius'),
+  dotRadiusVal:       $('dot-radius-val'),
   showEdges:          $('show-edges'),
   showContours:       $('show-contours'),
   btnSaveImage:       $('btn-save-image'),
@@ -294,6 +300,18 @@ elems.cannyHigh.addEventListener('input', () => {
 elems.minArea.addEventListener('input', () => {
   state.params.minArea = +elems.minArea.value;
   elems.minAreaVal.textContent = elems.minArea.value;
+});
+elems.noiseMinArea.addEventListener('input', () => {
+  state.params.noiseMinArea = +elems.noiseMinArea.value;
+  elems.noiseMinAreaVal.textContent = elems.noiseMinArea.value;
+  // Re-run detection to apply new noise threshold
+  if (state.lastCanvas) detectKnifeOnCanvas(state.lastCanvas, false);
+});
+elems.dotRadius.addEventListener('input', () => {
+  state.params.dotRadius = +elems.dotRadius.value;
+  elems.dotRadiusVal.textContent = elems.dotRadius.value;
+  // Redraw blade curve with new dot size
+  if (state.manualBlade.ago && state.manualBlade.kissaki) redrawManualBladeOverlay();
 });
 elems.showEdges.addEventListener('change', () => {
   state.params.showEdges = elems.showEdges.checked;
@@ -731,7 +749,7 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
       const cleanDisp = cv.Mat.zeros(edgesDisplay.rows, edgesDisplay.cols, cv.CV_8UC1);
       for (let i = 0; i < noiseCnts.size(); i++) {
         const cnt = noiseCnts.get(i);
-        if (cv.contourArea(cnt) >= 80) cv.drawContours(cleanDisp, noiseCnts, i, new cv.Scalar(255), -1);
+        if (cv.contourArea(cnt) >= state.params.noiseMinArea) cv.drawContours(cleanDisp, noiseCnts, i, new cv.Scalar(255), -1);
         cnt.delete();
       }
       noiseCnts.delete(); noiseHier.delete();
@@ -1607,7 +1625,7 @@ function redrawManualBladeOverlay() {
   // Draw アゴ-only preview dot when step=2 (kissaki not yet placed)
   if (mb.ago && !mb.kissaki) {
     const ctx = canvas.getContext('2d');
-    const r = Math.max(6, canvas.width / 90);
+    const r = Math.max(3, Math.round(state.params.dotRadius * canvas.width / 1000));
     ctx.save();
     ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3;
     ctx.beginPath(); ctx.arc(mb.ago.imgX, mb.ago.imgY, r + 3, 0, Math.PI * 2); ctx.stroke();
@@ -1775,7 +1793,7 @@ function drawBladeEdgeCurve(pts) {
     });
 
     // Red dots at アゴ (first point) and 切先 (last point)
-    const endR = Math.max(7, Math.round(9 * scale));
+    const endR = Math.max(3, Math.round(state.params.dotRadius * scale));
     const fontSize = Math.max(28, Math.round(32 * scale));
     [[pts[0], 'アゴ'], [pts[pts.length - 1], '切先']].forEach(([p, label]) => {
       // White outline ring for contrast against any background
