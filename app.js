@@ -35,7 +35,7 @@ const state = {
     cannyLow: 50,
     cannyHigh: 150,
     minArea: 2000,
-    noiseMinArea: 200,
+    noiseMinArea: 80,
     dotRadius: 5,
     showEdges: true,
     showContours: true,
@@ -740,21 +740,22 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
 
     // Clone edges before findContours — OpenCV.js clears the source Mat during findContours.
     edgesDisplay = edges.clone();
-    // Remove small noise components (background texture dots) from the display image.
-    {
-      const noiseCnts = new cv.MatVector(), noiseHier = new cv.Mat();
-      const tmpE = edgesDisplay.clone();
-      cv.findContours(tmpE, noiseCnts, noiseHier, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE);
-      tmpE.delete();
-      const cleanDisp = cv.Mat.zeros(edgesDisplay.rows, edgesDisplay.cols, cv.CV_8UC1);
-      for (let i = 0; i < noiseCnts.size(); i++) {
-        const cnt = noiseCnts.get(i);
-        if (cv.contourArea(cnt) >= state.params.noiseMinArea) cv.drawContours(cleanDisp, noiseCnts, i, new cv.Scalar(255), -1);
-        cnt.delete();
+    // Remove small noise components (background texture dots) by zeroing their pixels.
+    if (state.params.noiseMinArea > 0) {
+      const labels = new cv.Mat(), stats = new cv.Mat(), centroids = new cv.Mat();
+      cv.connectedComponentsWithStats(edgesDisplay, labels, stats, centroids, 8, cv.CV_32S);
+      centroids.delete();
+      const keepLabels = new Set();
+      for (let i = 1; i < stats.rows; i++) {
+        if (stats.intAt(i, cv.CC_STAT_AREA) >= state.params.noiseMinArea) keepLabels.add(i);
       }
-      noiseCnts.delete(); noiseHier.delete();
-      edgesDisplay.delete();
-      edgesDisplay = cleanDisp;
+      stats.delete();
+      const labelsArr = labels.data32S;
+      const edgesArr = edgesDisplay.data;
+      for (let px = 0; px < labelsArr.length; px++) {
+        if (!keepLabels.has(labelsArr[px])) edgesArr[px] = 0;
+      }
+      labels.delete();
     }
     cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
