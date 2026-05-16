@@ -1573,15 +1573,15 @@ function extractBladeEdgeCurve() {
 
   // Step 2: アゴ = START of the steepest rise (right-angle corner).
   // Scan backward from the peak-slope point toward the handle until
-  // the slope falls below 15% of peak — that is where the flat handle ends.
+  // the slope falls below 8% of peak — that is where the flat handle ends.
   let agoIdx = handleOnLeft ? Math.round(raw.length * 0.3) : Math.round(raw.length * 0.7);
   if (handleOnLeft) {
     for (let j = bestSlopeIdx; j >= SKIP; j--) {
-      if (slopes[j] < peakSlope * 0.15) { agoIdx = j; break; }
+      if (slopes[j] < peakSlope * 0.08) { agoIdx = j; break; }
     }
   } else {
     for (let j = bestSlopeIdx; j <= raw.length - 1 - SKIP; j++) {
-      if (-slopes[j] < peakSlope * 0.15) { agoIdx = j; break; }
+      if (-slopes[j] < peakSlope * 0.08) { agoIdx = j; break; }
     }
   }
 
@@ -1591,9 +1591,9 @@ function extractBladeEdgeCurve() {
     : raw.slice(0, agoIdx + 1).reverse();
   if (blade.length < 4) return null;
 
-  // Step 3: 切先 = ACUTE TIP — last blade point where rotY ≥ 15% of peak
+  // Step 3: 切先 = ACUTE TIP — last blade point where rotY ≥ 8% of peak
   const peakRotY = blade.reduce((m, p) => Math.max(m, p.rotY), 0);
-  const kissThresh = peakRotY * 0.15;
+  const kissThresh = peakRotY * 0.08;
   let kissEnd = blade.length - 1;
   for (let i = blade.length - 1; i > 0; i--) {
     if (blade[i].rotY >= kissThresh) { kissEnd = i; break; }
