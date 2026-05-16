@@ -722,6 +722,22 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
 
     // Clone edges before findContours — OpenCV.js clears the source Mat during findContours.
     edgesDisplay = edges.clone();
+    // Remove small noise components (background texture dots) from the display image.
+    {
+      const noiseCnts = new cv.MatVector(), noiseHier = new cv.Mat();
+      const tmpE = edgesDisplay.clone();
+      cv.findContours(tmpE, noiseCnts, noiseHier, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE);
+      tmpE.delete();
+      const cleanDisp = cv.Mat.zeros(edgesDisplay.rows, edgesDisplay.cols, cv.CV_8UC1);
+      for (let i = 0; i < noiseCnts.size(); i++) {
+        const cnt = noiseCnts.get(i);
+        if (cv.contourArea(cnt) >= 80) cv.drawContours(cleanDisp, noiseCnts, i, new cv.Scalar(255), -1);
+        cnt.delete();
+      }
+      noiseCnts.delete(); noiseHier.delete();
+      edgesDisplay.delete();
+      edgesDisplay = cleanDisp;
+    }
     cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
     result = new cv.Mat();
@@ -1591,7 +1607,7 @@ function redrawManualBladeOverlay() {
   // Draw アゴ-only preview dot when step=2 (kissaki not yet placed)
   if (mb.ago && !mb.kissaki) {
     const ctx = canvas.getContext('2d');
-    const r = Math.max(10, canvas.width / 60);
+    const r = Math.max(6, canvas.width / 90);
     ctx.save();
     ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3;
     ctx.beginPath(); ctx.arc(mb.ago.imgX, mb.ago.imgY, r + 3, 0, Math.PI * 2); ctx.stroke();
@@ -1759,7 +1775,7 @@ function drawBladeEdgeCurve(pts) {
     });
 
     // Red dots at アゴ (first point) and 切先 (last point)
-    const endR = Math.max(14, Math.round(18 * scale));
+    const endR = Math.max(7, Math.round(9 * scale));
     const fontSize = Math.max(28, Math.round(32 * scale));
     [[pts[0], 'アゴ'], [pts[pts.length - 1], '切先']].forEach(([p, label]) => {
       // White outline ring for contrast against any background
