@@ -86,6 +86,16 @@
               <input type="range" id="min-area" min="100" max="20000" value="2000" step="100">
               <span id="min-area-val">2000</span>
             </div>
+            <div class="slider-row">
+              <span>ノイズ除去:</span>
+              <input type="range" id="noise-min-area" min="0" max="600" value="200" step="10">
+              <span id="noise-min-area-val">200</span> px²
+            </div>
+            <div class="slider-row">
+              <span>赤丸サイズ:</span>
+              <input type="range" id="dot-radius" min="2" max="20" value="5">
+              <span id="dot-radius-val">5</span> px
+            </div>
             <div class="checkbox-row">
               <label class="check-label">
                 <input type="checkbox" id="show-edges" checked>エッジ表示
