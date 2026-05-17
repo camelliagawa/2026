@@ -465,9 +465,7 @@ function drawCalibRefOverlay(ctx, found) {
       });
     }
     ctx.shadowBlur = 0;
-    const labelPt = found.longEdgePts ? found.longEdgePts[0] : found.pts[0];
-    drawCalibLabel(ctx, `カード長辺 ${CARD_LONG_MM}mm ✓  ${found.pixelsPerMm.toFixed(2)} px/mm`,
-      labelPt.x, labelPt.y - 10);
+    // カード長辺ラベルは精度上の理由で非表示
   } else if (found.type === 'coin') {
     ctx.beginPath();
     ctx.arc(found.center.x, found.center.y, found.radiusPx, 0, Math.PI * 2);
@@ -961,26 +959,7 @@ function drawAnnotatedResult(srcCanvas, rectPts, bladeResult, calibPpm) {
   ctx.stroke();
   ctx.restore();
 
-  if (bladeResult) {
-    const { lengthPx, tipPt, juncPt, handleEndPt } = bladeResult;
-    const bladeLabel = calibPpm
-      ? `刃渡り ${(lengthPx / calibPpm).toFixed(1)} mm`
-      : `刃渡り ${lengthPx.toFixed(0)} px`;
-
-    // 柄ライン（橙）
-    drawMeasLine(ctx, juncPt, handleEndPt, '#ff9900', '柄', 3, 5, 6);
-    // 刃ライン（緑）
-    drawMeasLine(ctx, tipPt, juncPt, '#00e87a', bladeLabel, 3, 8, 8);
-
-    // 刃元マーカー
-    ctx.beginPath();
-    ctx.arc(juncPt.x, juncPt.y, 10, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,153,0,0.85)';
-    ctx.fill();
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-  }
+  // 刃渡り・柄・刃元マーカーは精度上の理由で非表示
 
   elems.resultImageBox.classList.remove('hidden');
 }
@@ -1351,10 +1330,7 @@ function detectInRoi(x1, y1, x2, y2) {
 // =====================================================================
 function showDetectionConfirm(result) {
   state.pendingResult = result;
-  const label = result.bladeOnlyMm != null
-    ? `刃渡り ${result.bladeOnlyMm.toFixed(1)} mm`
-    : `刃渡り ${result.bladeOnlyPx.toFixed(0)} px`;
-  elems.confirmSummary.textContent = label;
+  elems.confirmSummary.textContent = '';
   elems.detectionConfirm.classList.remove('hidden');
 }
 
