@@ -1802,70 +1802,128 @@ function drawEdgeCardCalibOverlay() {
   const ec = state.edgeCardCalib;
   if (!ec.pts.length) return;
   const ctx = canvas.getContext('2d');
-  const scale = Math.max(canvas.width, canvas.height) / 1000;
-  const r     = Math.max(6,  Math.round(8 * scale));
-  const lw    = Math.max(2,  Math.round(3 * scale));
-  const fs    = Math.max(20, Math.round(26 * scale));
-  const labels = ['①', '②', '③'];
-  const ptColors = ['#ffff00', '#ffff00', '#ff8800'];
+  const scale  = Math.max(canvas.width, canvas.height) / 1000;
+  const r      = Math.max(6,  Math.round(8  * scale));
+  const lw     = Math.max(2,  Math.round(3  * scale));
+  const fs     = Math.max(20, Math.round(26 * scale));
+  const dash   = Math.round(8 * scale);
+  const gap    = Math.round(5 * scale);
+  const ext    = Math.max(canvas.width, canvas.height) * 2; // 延長用
 
   ctx.save();
 
-  // 各点を描画
-  ec.pts.forEach((p, i) => {
-    const col = ptColors[i];
-    ctx.shadowColor = col; ctx.shadowBlur = Math.max(8, Math.round(10 * scale));
-    ctx.fillStyle = col; ctx.strokeStyle = '#000'; ctx.lineWidth = lw;
-    ctx.beginPath(); ctx.arc(p.imgX, p.imgY, r, 0, Math.PI * 2);
-    ctx.fill(); ctx.stroke();
-    ctx.shadowBlur = 0;
-    ctx.font = `bold ${fs}px sans-serif`; ctx.textBaseline = 'bottom';
-    ctx.lineWidth = Math.max(3, Math.round(4 * scale));
-    ctx.strokeStyle = '#000'; ctx.strokeText(labels[i], p.imgX + r + 2, p.imgY - 2);
-    ctx.fillStyle = col;    ctx.fillText(labels[i], p.imgX + r + 2, p.imgY - 2);
-  });
-
-  // ①②を結ぶ破線（短辺ライン）
+  // ─── ①②の直線を延長（破線でキャンバス端まで） ───
   if (ec.pts.length >= 2) {
-    const dash = Math.round(6 * scale);
-    ctx.strokeStyle = '#ffff00'; ctx.lineWidth = lw;
-    ctx.shadowColor = '#ffff00'; ctx.shadowBlur = Math.max(6, Math.round(8 * scale));
-    ctx.setLineDash([dash, Math.round(4 * scale)]);
-    ctx.beginPath();
-    ctx.moveTo(ec.pts[0].imgX, ec.pts[0].imgY);
-    ctx.lineTo(ec.pts[1].imgX, ec.pts[1].imgY);
-    ctx.stroke();
-    ctx.setLineDash([]); ctx.shadowBlur = 0;
+    const [p1, p2] = ec.pts;
+    const dx = p2.imgX - p1.imgX, dy = p2.imgY - p1.imgY;
+    const lineLen = Math.hypot(dx, dy);
+    if (lineLen > 0) {
+      const ux = dx / lineLen, uy = dy / lineLen;
+      ctx.strokeStyle = '#ffff00';
+      ctx.lineWidth = lw;
+      ctx.globalAlpha = 0.6;
+      ctx.setLineDash([dash, gap]);
+      ctx.shadowColor = '#ffff00';
+      ctx.shadowBlur = Math.max(4, Math.round(6 * scale));
+      ctx.beginPath();
+      ctx.moveTo(p1.imgX - ux * ext, p1.imgY - uy * ext);
+      ctx.lineTo(p1.imgX + ux * ext, p1.imgY + uy * ext);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 1;
+    }
   }
 
-  // ③から①②ラインへの垂線と校正値ラベル
+  // ─── 点 ①②③ を描画 ───
+  const labels    = ['①', '②', '③'];
+  const ptColors  = ['#ffff00', '#ffff00', '#ff8800'];
+  ec.pts.forEach((p, i) => {
+    const col = ptColors[i];
+    ctx.shadowColor = col;
+    ctx.shadowBlur  = Math.max(8, Math.round(10 * scale));
+    ctx.fillStyle   = col;
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth   = lw;
+    ctx.beginPath();
+    ctx.arc(p.imgX, p.imgY, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    // ラベル
+    ctx.font        = `bold ${fs}px sans-serif`;
+    ctx.textBaseline = 'bottom';
+    ctx.lineWidth   = Math.max(3, Math.round(4 * scale));
+    ctx.strokeStyle = '#000';
+    ctx.strokeText(labels[i], p.imgX + r + 2, p.imgY - 2);
+    ctx.fillStyle = col;
+    ctx.fillText(labels[i],   p.imgX + r + 2, p.imgY - 2);
+  });
+
+  // ─── ③から①②直線への垂線 + 直角マーク + ラベル ───
   if (ec.pts.length >= 3) {
     const [p1, p2, p3] = ec.pts;
-    const foot = perpendicularFoot(p1, p2, p3);
-    const distPx = Math.hypot(p3.imgX - foot.x, p3.imgY - foot.y);
-    const ppm = distPx / CARD_LONG_MM;
+    const foot    = perpendicularFoot(p1, p2, p3);
+    const distPx  = Math.hypot(p3.imgX - foot.x, p3.imgY - foot.y);
+    const ppm     = distPx / CARD_LONG_MM;
 
-    ctx.strokeStyle = '#00ff88'; ctx.lineWidth = lw + 1;
-    ctx.shadowColor = '#00ff88'; ctx.shadowBlur = Math.max(6, Math.round(8 * scale));
-    ctx.beginPath(); ctx.moveTo(p3.imgX, p3.imgY); ctx.lineTo(foot.x, foot.y); ctx.stroke();
+    // 垂線本体（③ → 足）
+    ctx.strokeStyle = '#00ff88';
+    ctx.lineWidth   = lw + 1;
+    ctx.shadowColor = '#00ff88';
+    ctx.shadowBlur  = Math.max(6, Math.round(8 * scale));
+    ctx.beginPath();
+    ctx.moveTo(p3.imgX, p3.imgY);
+    ctx.lineTo(foot.x, foot.y);
+    ctx.stroke();
     ctx.shadowBlur = 0;
 
-    // 垂線の足
+    // 垂線の足マーカー
     ctx.fillStyle = '#00ff88';
-    ctx.beginPath(); ctx.arc(foot.x, foot.y, r * 0.6, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath();
+    ctx.arc(foot.x, foot.y, r * 0.65, 0, Math.PI * 2);
+    ctx.fill();
 
-    // 校正値ラベル（垂線の中点付近）
-    const midX = (p3.imgX + foot.x) / 2;
-    const midY = (p3.imgY + foot.y) / 2;
-    // 垂線に直交する方向にオフセット
+    // 直角マーク（足の部分に小さな四角）
     const perpLen = Math.hypot(p3.imgX - foot.x, p3.imgY - foot.y);
-    const offX = perpLen > 1 ? -(p3.imgY - foot.y) / perpLen * (r + 4) : (r + 4);
-    const offY = perpLen > 1 ?  (p3.imgX - foot.x) / perpLen * (r + 4) : 0;
-    const label = `${CARD_LONG_MM}mm = ${ppm.toFixed(2)} px/mm`;
-    ctx.font = `bold ${fs}px sans-serif`; ctx.textBaseline = 'middle';
-    ctx.lineWidth = Math.max(3, Math.round(4 * scale));
-    ctx.strokeStyle = '#000'; ctx.strokeText(label, midX + offX, midY + offY);
-    ctx.fillStyle = '#00ff88'; ctx.fillText(label, midX + offX, midY + offY);
+    if (perpLen > 1) {
+      // ①②方向の単位ベクトル
+      const lineLen = Math.hypot(p2.imgX - p1.imgX, p2.imgY - p1.imgY);
+      const u1x = (p2.imgX - p1.imgX) / lineLen;
+      const u1y = (p2.imgY - p1.imgY) / lineLen;
+      // ③方向の単位ベクトル（足→③）
+      const u2x = (p3.imgX - foot.x) / perpLen;
+      const u2y = (p3.imgY - foot.y) / perpLen;
+      const m   = Math.max(8, Math.round(10 * scale));
+      ctx.strokeStyle = '#00ff88';
+      ctx.lineWidth   = lw;
+      ctx.beginPath();
+      ctx.moveTo(foot.x + u1x * m,             foot.y + u1y * m);
+      ctx.lineTo(foot.x + u1x * m + u2x * m,   foot.y + u1y * m + u2y * m);
+      ctx.lineTo(foot.x + u2x * m,              foot.y + u2y * m);
+      ctx.stroke();
+    }
+
+    // 校正値ラベル（垂線の中点、①②方向にオフセット）
+    const midX   = (p3.imgX + foot.x) / 2;
+    const midY   = (p3.imgY + foot.y) / 2;
+    const label  = `${CARD_LONG_MM}mm = ${ppm.toFixed(2)} px/mm`;
+    // ①②に平行な方向（垂線に直交）にラベルをずらす
+    if (perpLen > 1 && ec.pts.length >= 2) {
+      const lineLen2 = Math.hypot(p2.imgX - p1.imgX, p2.imgY - p1.imgY);
+      const nx =  (p2.imgX - p1.imgX) / lineLen2;  // ①②方向
+      const ny =  (p2.imgY - p1.imgY) / lineLen2;
+      const labelOff = fs * 0.9;
+      ctx.font        = `bold ${fs}px sans-serif`;
+      ctx.textAlign   = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineWidth   = Math.max(3, Math.round(4 * scale));
+      ctx.strokeStyle = '#000';
+      ctx.strokeText(label, midX + nx * labelOff, midY + ny * labelOff);
+      ctx.fillStyle   = '#00ff88';
+      ctx.fillText(label,   midX + nx * labelOff, midY + ny * labelOff);
+      ctx.textAlign = 'left';
+    }
   }
 
   ctx.restore();
