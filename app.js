@@ -35,6 +35,8 @@ const state = {
   edgeCanvasImageData: null,
   manualBlade: { step: 0, ago: null, kissaki: null, dragging: null },
   // step: 0=inactive 1=awaiting ago 2=awaiting kissaki 3=both placed (drag enabled)
+  edgeCardCalib: { step: 0, pts: [] },
+  // step: 0=inactive 1=awaiting p1 2=awaiting p2 3=awaiting p3 4=done
   params: {
     cannyLow: 50,
     cannyHigh: 150,
@@ -108,6 +110,9 @@ const elems = {
   btnManualBlade:         $('btn-manual-blade'),
   btnManualBladeReset:    $('btn-manual-blade-reset'),
   manualBladeHint:        $('manual-blade-hint'),
+  btnEdgeCardCalib:       $('btn-edge-card-calib'),
+  btnEdgeCardCalibReset:  $('btn-edge-card-calib-reset'),
+  edgeCalibHint:          $('edge-calib-hint'),
   versionInfo:            $('version-info'),
   historyBody:        $('history-body'),
   btnClearHistory:    $('btn-clear-history'),
@@ -1676,6 +1681,13 @@ function updateManualBladeHint(text) {
 }
 
 function startManualBladeSelect() {
+  // カード校正が進行中なら中断してUIを戻す
+  if (state.edgeCardCalib.step >= 1 && state.edgeCardCalib.step <= 3) {
+    state.edgeCardCalib = { step: 0, pts: [] };
+    elems.btnEdgeCardCalib?.classList.remove('hidden');
+    elems.btnEdgeCardCalibReset?.classList.add('hidden');
+    updateEdgeCalibHint(null);
+  }
   state.manualBlade = { step: 1, ago: null, kissaki: null, dragging: null };
   const canvas = elems.resultProcessedCanvas;
   if (canvas && state.edgeCanvasImageData) {
@@ -1697,6 +1709,11 @@ function edgeCanvasCoords(e) {
 }
 
 function onEdgePointerDown(e) {
+  // カード校正選択中(step1-3)はブレードモードより優先
+  if (state.edgeCardCalib.step >= 1 && state.edgeCardCalib.step <= 3) {
+    handleEdgeCardCalibClick(e);
+    return;
+  }
   const mb = state.manualBlade;
   if (mb.step === 0) return;
   const canvas = elems.resultProcessedCanvas;
@@ -1755,6 +1772,177 @@ function onEdgePointerMove(e) {
 
 function onEdgePointerUp() {
   state.manualBlade.dragging = null;
+}
+
+// =====================================================================
+// エッジ画像でのカード短辺3点校正
+// =====================================================================
+
+function perpendicularFoot(p1, p2, p3) {
+  const dx = p2.imgX - p1.imgX, dy = p2.imgY - p1.imgY;
+  const len2 = dx * dx + dy * dy;
+  if (len2 < 1e-12) return { x: p1.imgX, y: p1.imgY };
+  const t = ((p3.imgX - p1.imgX) * dx + (p3.imgY - p1.imgY) * dy) / len2;
+  return { x: p1.imgX + t * dx, y: p1.imgY + t * dy };
+}
+
+function updateEdgeCalibHint(text) {
+  if (!elems.edgeCalibHint) return;
+  if (text) {
+    elems.edgeCalibHint.textContent = text;
+    elems.edgeCalibHint.classList.remove('hidden');
+  } else {
+    elems.edgeCalibHint.classList.add('hidden');
+  }
+}
+
+function drawEdgeCardCalibOverlay() {
+  const canvas = elems.resultProcessedCanvas;
+  if (!canvas) return;
+  const ec = state.edgeCardCalib;
+  if (!ec.pts.length) return;
+  const ctx = canvas.getContext('2d');
+  const scale = Math.max(canvas.width, canvas.height) / 1000;
+  const r     = Math.max(6,  Math.round(8 * scale));
+  const lw    = Math.max(2,  Math.round(3 * scale));
+  const fs    = Math.max(20, Math.round(26 * scale));
+  const labels = ['①', '②', '③'];
+  const ptColors = ['#ffff00', '#ffff00', '#ff8800'];
+
+  ctx.save();
+
+  // 各点を描画
+  ec.pts.forEach((p, i) => {
+    const col = ptColors[i];
+    ctx.shadowColor = col; ctx.shadowBlur = Math.max(8, Math.round(10 * scale));
+    ctx.fillStyle = col; ctx.strokeStyle = '#000'; ctx.lineWidth = lw;
+    ctx.beginPath(); ctx.arc(p.imgX, p.imgY, r, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.font = `bold ${fs}px sans-serif`; ctx.textBaseline = 'bottom';
+    ctx.lineWidth = Math.max(3, Math.round(4 * scale));
+    ctx.strokeStyle = '#000'; ctx.strokeText(labels[i], p.imgX + r + 2, p.imgY - 2);
+    ctx.fillStyle = col;    ctx.fillText(labels[i], p.imgX + r + 2, p.imgY - 2);
+  });
+
+  // ①②を結ぶ破線（短辺ライン）
+  if (ec.pts.length >= 2) {
+    const dash = Math.round(6 * scale);
+    ctx.strokeStyle = '#ffff00'; ctx.lineWidth = lw;
+    ctx.shadowColor = '#ffff00'; ctx.shadowBlur = Math.max(6, Math.round(8 * scale));
+    ctx.setLineDash([dash, Math.round(4 * scale)]);
+    ctx.beginPath();
+    ctx.moveTo(ec.pts[0].imgX, ec.pts[0].imgY);
+    ctx.lineTo(ec.pts[1].imgX, ec.pts[1].imgY);
+    ctx.stroke();
+    ctx.setLineDash([]); ctx.shadowBlur = 0;
+  }
+
+  // ③から①②ラインへの垂線と校正値ラベル
+  if (ec.pts.length >= 3) {
+    const [p1, p2, p3] = ec.pts;
+    const foot = perpendicularFoot(p1, p2, p3);
+    const distPx = Math.hypot(p3.imgX - foot.x, p3.imgY - foot.y);
+    const ppm = distPx / CARD_LONG_MM;
+
+    ctx.strokeStyle = '#00ff88'; ctx.lineWidth = lw + 1;
+    ctx.shadowColor = '#00ff88'; ctx.shadowBlur = Math.max(6, Math.round(8 * scale));
+    ctx.beginPath(); ctx.moveTo(p3.imgX, p3.imgY); ctx.lineTo(foot.x, foot.y); ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // 垂線の足
+    ctx.fillStyle = '#00ff88';
+    ctx.beginPath(); ctx.arc(foot.x, foot.y, r * 0.6, 0, Math.PI * 2); ctx.fill();
+
+    // 校正値ラベル（垂線の中点付近）
+    const midX = (p3.imgX + foot.x) / 2;
+    const midY = (p3.imgY + foot.y) / 2;
+    // 垂線に直交する方向にオフセット
+    const perpLen = Math.hypot(p3.imgX - foot.x, p3.imgY - foot.y);
+    const offX = perpLen > 1 ? -(p3.imgY - foot.y) / perpLen * (r + 4) : (r + 4);
+    const offY = perpLen > 1 ?  (p3.imgX - foot.x) / perpLen * (r + 4) : 0;
+    const label = `${CARD_LONG_MM}mm = ${ppm.toFixed(2)} px/mm`;
+    ctx.font = `bold ${fs}px sans-serif`; ctx.textBaseline = 'middle';
+    ctx.lineWidth = Math.max(3, Math.round(4 * scale));
+    ctx.strokeStyle = '#000'; ctx.strokeText(label, midX + offX, midY + offY);
+    ctx.fillStyle = '#00ff88'; ctx.fillText(label, midX + offX, midY + offY);
+  }
+
+  ctx.restore();
+}
+
+function startEdgeCardCalib() {
+  // ブレードモードが選択中なら中断
+  if (state.manualBlade.step >= 1 && state.manualBlade.step <= 2) {
+    state.manualBlade = { step: 0, ago: null, kissaki: null, dragging: null };
+    elems.resultProcessedCanvas?.classList.remove('manual-selecting');
+    elems.btnManualBlade?.classList.remove('hidden');
+    elems.btnManualBladeReset?.classList.add('hidden');
+    updateManualBladeHint(null);
+  }
+  state.edgeCardCalib = { step: 1, pts: [] };
+  const canvas = elems.resultProcessedCanvas;
+  if (canvas && state.edgeCanvasImageData) {
+    canvas.getContext('2d').putImageData(state.edgeCanvasImageData, 0, 0);
+  }
+  elems.btnEdgeCardCalib?.classList.add('hidden');
+  elems.btnEdgeCardCalibReset?.classList.remove('hidden');
+  updateEdgeCalibHint('① カード短辺の1点目をタップ →');
+}
+
+function handleEdgeCardCalibClick(e) {
+  const ec = state.edgeCardCalib;
+  const canvas = elems.resultProcessedCanvas;
+  const { x, y } = edgeCanvasCoords(e);
+  const snapped = snapToEdge(canvas, x, y, 30);
+
+  if (ec.step === 1) {
+    ec.pts = [snapped];
+    ec.step = 2;
+    canvas.getContext('2d').putImageData(state.edgeCanvasImageData, 0, 0);
+    drawEdgeCardCalibOverlay();
+    updateEdgeCalibHint('② 同じ短辺の2点目をタップ →');
+    return;
+  }
+
+  if (ec.step === 2) {
+    ec.pts.push(snapped);
+    ec.step = 3;
+    canvas.getContext('2d').putImageData(state.edgeCanvasImageData, 0, 0);
+    drawEdgeCardCalibOverlay();
+    updateEdgeCalibHint('③ 反対側の短辺をタップ →');
+    return;
+  }
+
+  if (ec.step === 3) {
+    ec.pts.push(snapped);
+    const [p1, p2, p3] = ec.pts;
+    const foot = perpendicularFoot(p1, p2, p3);
+    const distPx = Math.hypot(p3.imgX - foot.x, p3.imgY - foot.y);
+    if (distPx < 20) {
+      log('3点が近すぎます。やり直してください。', 'warn');
+      updateEdgeCalibHint('⚠ 点が近すぎます — やり直してください');
+      ec.step = 1; ec.pts = [];
+      canvas.getContext('2d').putImageData(state.edgeCanvasImageData, 0, 0);
+      return;
+    }
+    ec.step = 4;
+    const newPpm = distPx / CARD_LONG_MM;
+    state.calibPixelsPerMm = newPpm;
+
+    if (elems.resCalib) elems.resCalib.textContent = newPpm.toFixed(2);
+    if (elems.calibStatus) elems.calibStatus.textContent = `エッジカード3点校正: ${newPpm.toFixed(2)} px/mm`;
+    log(`エッジカード3点校正完了: ${newPpm.toFixed(2)} px/mm (${distPx.toFixed(0)} px = ${CARD_LONG_MM} mm)`, 'detect');
+
+    // 校正値が変わったのでブレード曲線を再計算
+    if (state.manualBlade.ago && state.manualBlade.kissaki) {
+      redrawManualBladeOverlay();
+    } else {
+      canvas.getContext('2d').putImageData(state.edgeCanvasImageData, 0, 0);
+    }
+    drawEdgeCardCalibOverlay();
+    updateEdgeCalibHint(`完了 ✓  ${newPpm.toFixed(2)} px/mm — やり直す場合は「やり直し」ボタン`);
+  }
 }
 
 
@@ -1899,6 +2087,8 @@ elems.bladeDotInterval?.addEventListener('input', () => {
 // =====================================================================
 elems.btnManualBlade?.addEventListener('click', startManualBladeSelect);
 elems.btnManualBladeReset?.addEventListener('click', startManualBladeSelect); // reset = restart from step 1
+elems.btnEdgeCardCalib?.addEventListener('click', startEdgeCardCalib);
+elems.btnEdgeCardCalibReset?.addEventListener('click', startEdgeCardCalib); // reset = restart from step 1
 elems.resultProcessedCanvas?.addEventListener('pointerdown', onEdgePointerDown);
 elems.resultProcessedCanvas?.addEventListener('pointermove', onEdgePointerMove, { passive: false });
 elems.resultProcessedCanvas?.addEventListener('pointerup', onEdgePointerUp);
@@ -1921,11 +2111,15 @@ elems.btnSaveImage.addEventListener('click', () => {
 elems.btnReset.addEventListener('click', () => {
   exitManualModeQuiet();
   state.manualBlade = { step: 0, ago: null, kissaki: null, dragging: null };
+  state.edgeCardCalib = { step: 0, pts: [] };
   state.edgeCanvasImageData = null;
   elems.resultProcessedCanvas?.classList.remove('manual-selecting');
   elems.btnManualBlade?.classList.remove('hidden');
   elems.btnManualBladeReset?.classList.add('hidden');
   updateManualBladeHint(null);
+  elems.btnEdgeCardCalib?.classList.remove('hidden');
+  elems.btnEdgeCardCalibReset?.classList.add('hidden');
+  updateEdgeCalibHint(null);
   clearOverlay();
   state.calibPixelsPerMm = null;
   state.lastContourPts = null;
