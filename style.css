@@ -595,6 +595,14 @@ select:focus, input:focus {
 }
 
 /* ======= Card Calibration Row ======= */
+.step-label {
+  font-size: 1rem;
+  font-weight: bold;
+  color: #aaa;
+  min-width: 1.4em;
+  text-align: center;
+}
+
 .calib-card-row {
   display: flex;
   align-items: center;
