@@ -20,10 +20,6 @@ const state = {
   autoCalibRunning: false,
   animFrameId: null,
   pendingResult: null,
-  calTapMode: false,
-  calTapPts: [],
-  roiTapMode: false,
-  roiTapPts: [],
   lastCanvas: null,
   lastRectPts: null,
   lastBladeResult: null,
@@ -31,7 +27,6 @@ const state = {
   lastContourPts: null,
   lastRect: null,
   lastBladeCurvePts: null,
-  preCurveImageData: null,
   edgeCanvasImageData: null,
   manualBlade: { step: 0, ago: null, kissaki: null, dragging: null },
   // step: 0=inactive 1=awaiting ago 2=awaiting kissaki 3=both placed (drag enabled)
@@ -96,14 +91,6 @@ const elems = {
   resultImageBox:          $('result-image-box'),
   resultProcessedCanvas:   $('result-processed-canvas'),
   resultProcessedImageBox: $('processed-image-box'),
-  btnCalibFromCard:   $('btn-calib-from-card'),
-  calibTapHint:       $('calib-tap-hint'),
-  btnCancelCalibTap:  $('btn-cancel-calib-tap'),
-  btnRoiDetect:       $('btn-roi-detect'),
-  roiTapHint:         $('roi-tap-hint'),
-  btnCancelRoiTap:    $('btn-cancel-roi-tap'),
-  cardDetectFailed:   $('card-detect-failed'),
-  btnRetryRoi:        $('btn-retry-roi'),
   btnBladeCurve:      $('btn-blade-curve'),
   bladeCurveStatus:   $('blade-curve-status'),
   bladeDotInterval:       $('blade-dot-interval'),
@@ -964,65 +951,6 @@ function drawAnnotatedResult(srcCanvas, rectPts, bladeResult, calibPpm) {
   elems.resultImageBox.classList.remove('hidden');
 }
 
-function drawMeasLine(ctx, p1, p2, color, label, lw, dotR, tickLen) {
-  const dx = p2.x - p1.x;
-  const dy = p2.y - p1.y;
-  const len = Math.sqrt(dx * dx + dy * dy);
-  if (len < 1) return;
-
-  const nx = -dy / len;
-  const ny =  dx / len;
-  const fs = Math.max(14, Math.min(22, Math.round(len / 8)));
-
-  ctx.save();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = lw;
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 5;
-
-  // メインライン
-  ctx.beginPath();
-  ctx.moveTo(p1.x, p1.y);
-  ctx.lineTo(p2.x, p2.y);
-  ctx.stroke();
-  ctx.shadowBlur = 0;
-
-  // 端部チック
-  [p1, p2].forEach(p => {
-    ctx.beginPath();
-    ctx.moveTo(p.x + nx * tickLen, p.y + ny * tickLen);
-    ctx.lineTo(p.x - nx * tickLen, p.y - ny * tickLen);
-    ctx.stroke();
-  });
-
-  // 端点ドット
-  ctx.fillStyle = color;
-  [p1, p2].forEach(p => {
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, dotR, 0, Math.PI * 2);
-    ctx.fill();
-  });
-
-  // ラベル（中点から法線方向にオフセット）
-  const mx = (p1.x + p2.x) / 2;
-  const my = (p1.y + p2.y) / 2;
-  const offset = fs + tickLen + 6;
-  const lx = mx + nx * offset;
-  const ly = my + ny * offset;
-
-  ctx.font = `bold ${fs}px sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  const tw = ctx.measureText(label).width;
-
-  ctx.fillStyle = 'rgba(0,0,0,0.7)';
-  ctx.fillRect(lx - tw / 2 - 5, ly - fs * 0.65, tw + 10, fs * 1.3);
-  ctx.fillStyle = color;
-  ctx.fillText(label, lx, ly);
-
-  ctx.restore();
-}
-
 // =====================================================================
 // 刃部分のみ長さ推定（幅プロファイル解析）
 // =====================================================================
@@ -1139,96 +1067,6 @@ function updateStatus(text) {
   elems.resStatus.textContent = text;
 }
 
-// =====================================================================
-// カード手動校正（2点タップ）
-// =====================================================================
-function annotatedCanvasCoords(e) {
-  const rect = elems.annotatedCanvas.getBoundingClientRect();
-  const scaleX = elems.annotatedCanvas.width / rect.width;
-  const scaleY = elems.annotatedCanvas.height / rect.height;
-  const src = e.changedTouches ? e.changedTouches[0] : (e.touches ? e.touches[0] : e);
-  return {
-    x: (src.clientX - rect.left) * scaleX,
-    y: (src.clientY - rect.top) * scaleY,
-  };
-}
-
-elems.btnCalibFromCard.addEventListener('click', () => {
-  state.calTapMode = true;
-  state.calTapPts = [];
-  elems.btnCalibFromCard.classList.add('hidden');
-  elems.calibTapHint.classList.remove('hidden');
-  elems.btnCancelCalibTap.classList.remove('hidden');
-  elems.annotatedCanvas.classList.add('tap-mode');
-  log(`カードの長辺の両端を2点タップしてください（${CARD_LONG_MM}mm）`, 'info');
-});
-
-elems.btnCancelCalibTap.addEventListener('click', exitCalibTapMode);
-
-function exitCalibTapMode() {
-  state.calTapMode = false;
-  state.calTapPts = [];
-  elems.btnCalibFromCard.classList.remove('hidden');
-  elems.calibTapHint.classList.add('hidden');
-  elems.btnCancelCalibTap.classList.add('hidden');
-  elems.annotatedCanvas.classList.remove('tap-mode');
-}
-
-elems.annotatedCanvas.addEventListener('click', onAnnotatedCanvasClick);
-elems.annotatedCanvas.addEventListener('touchend', (e) => {
-  if (!state.calTapMode && !state.roiTapMode) return;
-  e.preventDefault();
-  onAnnotatedCanvasClick(e);
-}, { passive: false });
-
-function onAnnotatedCanvasClick(e) {
-  if (!state.calTapMode && !state.roiTapMode) return;
-  const pt = annotatedCanvasCoords(e);
-  const ctx = elems.annotatedCanvas.getContext('2d');
-
-  if (state.calTapMode) {
-    state.calTapPts.push(pt);
-    ctx.beginPath();
-    ctx.arc(pt.x, pt.y, 10, 0, Math.PI * 2);
-    ctx.fillStyle = state.calTapPts.length === 1 ? '#ffff00' : '#00e87a';
-    ctx.fill();
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    if (state.calTapPts.length >= 2) {
-      const [p1, p2] = state.calTapPts;
-      const distPx = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-      state.calibPixelsPerMm = distPx / CARD_LONG_MM;
-      log(`手動校正完了: ${state.calibPixelsPerMm.toFixed(2)} px/mm（${distPx.toFixed(0)} px = ${CARD_LONG_MM} mm）`, 'info');
-      elems.calibStatus.textContent = `手動校正: ${state.calibPixelsPerMm.toFixed(2)} px/mm`;
-      elems.resCalib.textContent = state.calibPixelsPerMm.toFixed(2);
-      exitCalibTapMode();
-      applyCalibration();
-      updateBladeCurveBtn();
-    }
-  } else if (state.roiTapMode) {
-    state.roiTapPts.push(pt);
-    // 1点目: コーナーマーカー
-    ctx.beginPath();
-    ctx.arc(pt.x, pt.y, 8, 0, Math.PI * 2);
-    ctx.fillStyle = '#ff9900';
-    ctx.fill();
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    if (state.roiTapPts.length >= 2) {
-      const [p1, p2] = state.roiTapPts;
-      // ROI矩形を描画
-      ctx.strokeStyle = '#ff9900';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([6, 3]);
-      ctx.strokeRect(p1.x, p1.y, p2.x - p1.x, p2.y - p1.y);
-      ctx.setLineDash([]);
-      detectInRoi(p1.x, p1.y, p2.x, p2.y);
-    }
-  }
-}
-
 function applyCalibration() {
   const ppm = state.calibPixelsPerMm;
   if (!ppm || !state.lastKnifeMetrics) return;
@@ -1242,86 +1080,6 @@ function applyCalibration() {
   });
   if (state.lastCanvas && state.lastRectPts && state.lastBladeResult) {
     drawAnnotatedResult(state.lastCanvas, state.lastRectPts, state.lastBladeResult, ppm);
-  }
-}
-
-// =====================================================================
-// ROIエリア指定カード検出
-// =====================================================================
-elems.btnRoiDetect.addEventListener('click', enterRoiTapMode);
-elems.btnCancelRoiTap.addEventListener('click', exitRoiTapMode);
-elems.btnRetryRoi.addEventListener('click', () => {
-  elems.cardDetectFailed.classList.add('hidden');
-  enterRoiTapMode();
-});
-
-function enterRoiTapMode() {
-  state.roiTapMode = true;
-  state.roiTapPts = [];
-  elems.btnRoiDetect.classList.add('hidden');
-  elems.btnCalibFromCard.classList.add('hidden');
-  elems.roiTapHint.classList.remove('hidden');
-  elems.btnCancelRoiTap.classList.remove('hidden');
-  elems.cardDetectFailed.classList.add('hidden');
-  elems.annotatedCanvas.classList.add('tap-mode');
-  log('カードが写っている範囲の対角2点をタップしてください', 'info');
-}
-
-function exitRoiTapMode() {
-  state.roiTapMode = false;
-  state.roiTapPts = [];
-  elems.btnRoiDetect.classList.remove('hidden');
-  elems.btnCalibFromCard.classList.remove('hidden');
-  elems.roiTapHint.classList.add('hidden');
-  elems.btnCancelRoiTap.classList.add('hidden');
-  elems.annotatedCanvas.classList.remove('tap-mode');
-}
-
-function detectInRoi(x1, y1, x2, y2) {
-  if (!state.lastCanvas) return;
-  const cropX = Math.round(Math.min(x1, x2));
-  const cropY = Math.round(Math.min(y1, y2));
-  const cropW = Math.round(Math.abs(x2 - x1));
-  const cropH = Math.round(Math.abs(y2 - y1));
-  if (cropW < 20 || cropH < 20) {
-    log('選択エリアが小さすぎます', 'warn');
-    exitRoiTapMode();
-    return;
-  }
-
-  const cropCanvas = document.createElement('canvas');
-  cropCanvas.width = cropW;
-  cropCanvas.height = cropH;
-  cropCanvas.getContext('2d').drawImage(
-    state.lastCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH
-  );
-
-  const result = detectReferenceObject(cropCanvas);
-
-  if (result) {
-    // 座標を元画像の絶対座標に変換
-    if (result.pts) {
-      result.pts = result.pts.map(p => ({ x: p.x + cropX, y: p.y + cropY }));
-    }
-    if (result.longEdgePts) {
-      result.longEdgePts = result.longEdgePts.map(p => ({ x: p.x + cropX, y: p.y + cropY }));
-    }
-    if (result.center) {
-      result.center = { x: result.center.x + cropX, y: result.center.y + cropY };
-    }
-    state.calibPixelsPerMm = result.pixelsPerMm;
-    elems.calibStatus.textContent = `ROI自動校正: ${result.pixelsPerMm.toFixed(2)} px/mm`;
-    elems.resCalib.textContent = result.pixelsPerMm.toFixed(2);
-    log(`ROI内カード検出成功: ${result.pixelsPerMm.toFixed(2)} px/mm`, 'info');
-    applyCalibration();
-    updateBladeCurveBtn();
-    // カードのオーバーレイを追記
-    drawCalibRefOverlay(elems.annotatedCanvas.getContext('2d'), result);
-    exitRoiTapMode();
-  } else {
-    log('指定エリア内でカードを検出できませんでした', 'warn');
-    exitRoiTapMode();
-    elems.cardDetectFailed.classList.remove('hidden');
   }
 }
 
@@ -1488,21 +1246,6 @@ function detectJuncBin(wSmoothed, bottomEdge, maxBin, tipSide, BINS) {
     return bladeMaxBin;
   }
 }
-
-// Gaussian smooth an array (skips emptyVal entries)
-function gaussianSmoothArr(arr, emptyVal, sigma) {
-  const kr = Math.ceil(3 * sigma);
-  return arr.map((_, i) => {
-    let sum = 0, w = 0;
-    for (let j = Math.max(0, i - kr); j <= Math.min(arr.length - 1, i + kr); j++) {
-      if (arr[j] === emptyVal) continue;
-      const wt = Math.exp(-0.5 * ((j - i) / sigma) ** 2);
-      sum += arr[j] * wt; w += wt;
-    }
-    return w > 0 ? sum / w : emptyVal;
-  });
-}
-
 
 // =====================================================================
 // 手動アゴ・切先指定
