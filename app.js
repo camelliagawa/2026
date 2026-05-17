@@ -75,6 +75,8 @@ const elems = {
   resStatus:          $('res-status'),
   resBladeLength:     $('res-blade-length'),
   unitBladeLength:    $('unit-blade-length'),
+  resCurveLength:     $('res-curve-length'),
+  unitCurveLength:    $('unit-curve-length'),
   resTotalLength:     $('res-total-length'),
   unitTotalLength:    $('unit-total-length'),
   resBladeWidth:      $('res-blade-width'),
@@ -1643,12 +1645,18 @@ function redrawManualBladeOverlay() {
   drawBladeEdgeCurve(pts);
 
   const lenMm = pts[pts.length - 1].xMm;
+  const curveMm = calcCurveLengthMm(pts);
   if (elems.resBladeLength) {
     elems.resBladeLength.textContent = lenMm.toFixed(1);
     elems.unitBladeLength.textContent = 'mm';
   }
+  if (elems.resCurveLength) {
+    elems.resCurveLength.textContent = curveMm !== null ? curveMm.toFixed(1) : '--';
+    elems.unitCurveLength.textContent = 'mm';
+  }
   if (elems.bladeCurveStatus) {
-    elems.bladeCurveStatus.textContent = `✓ 手動指定 (${bladeDotCount(pts)}点) ${lenMm.toFixed(1)} mm`;
+    const curveStr = curveMm !== null ? ` / 曲線長 ${curveMm.toFixed(1)} mm` : '';
+    elems.bladeCurveStatus.textContent = `✓ 手動指定 (${bladeDotCount(pts)}点) ${lenMm.toFixed(1)} mm${curveStr}`;
     elems.bladeCurveStatus.classList.remove('hidden');
   }
 }
@@ -1705,7 +1713,9 @@ function onEdgePointerDown(e) {
     elems.btnManualBlade?.classList.remove('hidden');
     redrawManualBladeOverlay();
     updateManualBladeHint('完了 ✓　赤丸をドラッグして調整できます');
-    log(`手動刃渡り曲線: ${state.lastBladeCurvePts ? state.lastBladeCurvePts[state.lastBladeCurvePts.length-1].xMm.toFixed(1) : '?'} mm`, 'detect');
+    const _curvePts = state.lastBladeCurvePts;
+    const _curveLen = _curvePts ? calcCurveLengthMm(_curvePts) : null;
+    log(`手動刃渡り曲線: 水平 ${_curvePts ? _curvePts[_curvePts.length-1].xMm.toFixed(1) : '?'} mm / 曲線長 ${_curveLen !== null ? _curveLen.toFixed(1) : '?'} mm`, 'detect');
     updateBladeCurveBtn();
     return;
   }
@@ -1743,6 +1753,18 @@ function onEdgePointerUp() {
   state.manualBlade.dragging = null;
 }
 
+
+function calcCurveLengthMm(pts) {
+  const ppm = state.calibPixelsPerMm;
+  if (!pts || pts.length < 2 || !ppm) return null;
+  let total = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const dx = pts[i].imgX - pts[i - 1].imgX;
+    const dy = pts[i].imgY - pts[i - 1].imgY;
+    total += Math.sqrt(dx * dx + dy * dy);
+  }
+  return total / ppm;
+}
 
 function sampleByMm(pts, intervalMm) {
   if (!pts || pts.length === 0) return [];
@@ -1910,6 +1932,8 @@ elems.btnReset.addEventListener('click', () => {
   elems.resCalib.textContent = '未設定';
   elems.resBladeLength.textContent = '--';
   elems.unitBladeLength.textContent = 'mm';
+  if (elems.resCurveLength) elems.resCurveLength.textContent = '--';
+  if (elems.unitCurveLength) elems.unitCurveLength.textContent = 'mm';
   elems.resTotalLength.textContent = '--';
   elems.unitTotalLength.textContent = 'mm';
   elems.resBladeWidth.textContent = '--';
