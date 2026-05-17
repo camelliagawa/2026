@@ -1620,6 +1620,7 @@ function redrawManualBladeOverlay() {
     ctx.fillStyle = '#ff2222'; ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 14;
     ctx.beginPath(); ctx.arc(mb.ago.imgX, mb.ago.imgY, r, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
+    if (state.edgeCardCalib.step === 4) drawEdgeCardCalibOverlay();
     return;
   }
   if (!mb.ago || !mb.kissaki) return;
@@ -1644,6 +1645,8 @@ function redrawManualBladeOverlay() {
     elems.bladeCurveStatus.textContent = `✓ 手動指定 (${bladeDotCount(pts)}点) ${lenMm.toFixed(1)} mm${curveStr}`;
     elems.bladeCurveStatus.classList.remove('hidden');
   }
+  // カード校正が完了済みなら校正オーバーレイをブレード曲線の上に重ねて表示
+  if (state.edgeCardCalib.step === 4) drawEdgeCardCalibOverlay();
 }
 
 function updateManualBladeHint(text) {
