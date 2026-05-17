@@ -220,7 +220,7 @@ async function startCamera() {
     });
     elems.video.play();
 
-    elems.videoContainer.style.display = '';
+    elems.videoContainer.style.display = 'block';
     resizeOverlayCanvas();
     state.cameraActive = true;
     elems.btnStartCamera.disabled = true;
