@@ -1,5 +1,9 @@
 'use strict';
 
+// クレジットカード長辺寸法（ISO/IEC 7810 ID-1規格: 85.60 × 53.98 mm）
+// 校正の基準値として全コードで統一使用する
+const CARD_LONG_MM = 85.6;
+
 // =====================================================================
 // 状態管理
 // =====================================================================
@@ -400,7 +404,7 @@ function analyzeImage(canvas) {
   const calRef = detectReferenceObject(canvas);
   if (calRef) {
     state.calibPixelsPerMm = calRef.pixelsPerMm;
-    const typeName = calRef.type === 'card' ? 'クレジットカード (85.6mm)' : '500円硬貨 (26.5mm)';
+    const typeName = calRef.type === 'card' ? `クレジットカード (${CARD_LONG_MM}mm)` : '500円硬貨 (26.5mm)';
     elems.calibStatus.textContent = `自動校正完了: ${state.calibPixelsPerMm.toFixed(2)} px/mm`;
     elems.resCalib.textContent     = state.calibPixelsPerMm.toFixed(2);
     log(`自動キャリブレーション [${typeName}]: ${state.calibPixelsPerMm.toFixed(2)} px/mm`, 'info');
@@ -457,7 +461,7 @@ function drawCalibRefOverlay(ctx, found) {
     }
     ctx.shadowBlur = 0;
     const labelPt = found.longEdgePts ? found.longEdgePts[0] : found.pts[0];
-    drawCalibLabel(ctx, `カード長辺 85.6mm ✓  ${found.pixelsPerMm.toFixed(2)} px/mm`,
+    drawCalibLabel(ctx, `カード長辺 ${CARD_LONG_MM}mm ✓  ${found.pixelsPerMm.toFixed(2)} px/mm`,
       labelPt.x, labelPt.y - 10);
   } else if (found.type === 'coin') {
     ctx.beginPath();
@@ -531,7 +535,7 @@ function detectReferenceObject(tmpCanvas) {
         if (rh < 8) { cnt.delete(); continue; }
         const aspect = rw / rh;
 
-        // クレジットカード: アスペクト比 ~1.586 (85.6mm / 54mm)、矩形
+        // クレジットカード: アスペクト比 ~1.586 (CARD_LONG_MM=85.6mm / 54mm)、矩形
         if (aspect >= pass.aspectMin && aspect <= pass.aspectMax && circularity < 0.78) {
           const approx = new cv.Mat();
           cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
@@ -547,7 +551,7 @@ function detectReferenceObject(tmpCanvas) {
               bestCard = {
                 type: 'card',
                 area,
-                pixelsPerMm: rw / 85.6,
+                pixelsPerMm: rw / CARD_LONG_MM,
                 pts,
                 longEdgePts,
               };
@@ -1172,7 +1176,7 @@ elems.btnCalibFromCard.addEventListener('click', () => {
   elems.calibTapHint.classList.remove('hidden');
   elems.btnCancelCalibTap.classList.remove('hidden');
   elems.annotatedCanvas.classList.add('tap-mode');
-  log('カードの長辺の両端を2点タップしてください（85.6mm）', 'info');
+  log(`カードの長辺の両端を2点タップしてください（${CARD_LONG_MM}mm）`, 'info');
 });
 
 elems.btnCancelCalibTap.addEventListener('click', exitCalibTapMode);
@@ -1210,8 +1214,8 @@ function onAnnotatedCanvasClick(e) {
     if (state.calTapPts.length >= 2) {
       const [p1, p2] = state.calTapPts;
       const distPx = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-      state.calibPixelsPerMm = distPx / 85.6;
-      log(`手動校正完了: ${state.calibPixelsPerMm.toFixed(2)} px/mm（${distPx.toFixed(0)} px = 85.6 mm）`, 'info');
+      state.calibPixelsPerMm = distPx / CARD_LONG_MM;
+      log(`手動校正完了: ${state.calibPixelsPerMm.toFixed(2)} px/mm（${distPx.toFixed(0)} px = ${CARD_LONG_MM} mm）`, 'info');
       elems.calibStatus.textContent = `手動校正: ${state.calibPixelsPerMm.toFixed(2)} px/mm`;
       elems.resCalib.textContent = state.calibPixelsPerMm.toFixed(2);
       exitCalibTapMode();
