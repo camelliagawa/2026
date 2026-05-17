@@ -71,9 +71,9 @@ header .subtitle {
   border-radius: 10px;
   overflow: hidden;
   border: 2px solid #0f3460;
-  /* モバイル: 画面の上部30%をカメラに割り当て、残りをアクションバーに */
   max-height: 30vh;
   aspect-ratio: 4/3;
+  display: none;
 }
 
 #video {

@@ -94,6 +94,7 @@ const elems = {
   btnBladeCurve:      $('btn-blade-curve'),
   bladeCurveStatus:   $('blade-curve-status'),
   bladeDotInterval:       $('blade-dot-interval'),
+  videoContainer:         $('video-container'),
   btnManualBlade:         $('btn-manual-blade'),
   btnManualBladeReset:    $('btn-manual-blade-reset'),
   manualBladeHint:        $('manual-blade-hint'),
@@ -219,6 +220,7 @@ async function startCamera() {
     });
     elems.video.play();
 
+    elems.videoContainer.style.display = '';
     resizeOverlayCanvas();
     state.cameraActive = true;
     elems.btnStartCamera.disabled = true;
@@ -243,6 +245,7 @@ function stopCameraStream() {
 function stopCamera() {
   stopCameraStream();
   elems.video.srcObject = null;
+  elems.videoContainer.style.display = 'none';
   state.cameraActive = false;
   elems.btnStartCamera.disabled = false;
   elems.btnStopCamera.disabled = true;
