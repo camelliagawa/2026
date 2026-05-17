@@ -35,8 +35,8 @@ const state = {
   edgeCanvasImageData: null,
   manualBlade: { step: 0, ago: null, kissaki: null, dragging: null },
   // step: 0=inactive 1=awaiting ago 2=awaiting kissaki 3=both placed (drag enabled)
-  edgeCardCalib: { step: 0, pts: [] },
-  // step: 0=inactive 1=awaiting p1 2=awaiting p2 3=awaiting p3 4=done
+  edgeCardCalib: { step: 0, pts: [], dragging: null },
+  // step: 0=inactive 1=awaiting p1 2=awaiting p2 3=awaiting p3 4=done(drag enabled)
   params: {
     cannyLow: 50,
     cannyHigh: 150,
@@ -1683,7 +1683,7 @@ function updateManualBladeHint(text) {
 function startManualBladeSelect() {
   // カード校正が進行中なら中断してUIを戻す
   if (state.edgeCardCalib.step >= 1 && state.edgeCardCalib.step <= 3) {
-    state.edgeCardCalib = { step: 0, pts: [] };
+    state.edgeCardCalib = { step: 0, pts: [], dragging: null };
     elems.btnEdgeCardCalib?.classList.remove('hidden');
     elems.btnEdgeCardCalibReset?.classList.add('hidden');
     updateEdgeCalibHint(null);
@@ -1709,10 +1709,28 @@ function edgeCanvasCoords(e) {
 }
 
 function onEdgePointerDown(e) {
-  // カード校正選択中(step1-3)はブレードモードより優先
+  // step1-3: 校正点をタップで配置
   if (state.edgeCardCalib.step >= 1 && state.edgeCardCalib.step <= 3) {
     handleEdgeCardCalibClick(e);
     return;
+  }
+  // step4: 校正点をドラッグ（ヒットしなければブレードモードへ通す）
+  if (state.edgeCardCalib.step === 4) {
+    const ec = state.edgeCardCalib;
+    const canvas = elems.resultProcessedCanvas;
+    const { x, y } = edgeCanvasCoords(e);
+    const HIT_R = Math.max(30, canvas.width / 25);
+    for (let i = 0; i < ec.pts.length; i++) {
+      const p = ec.pts[i];
+      const dx = x - p.imgX, dy = y - p.imgY;
+      if (dx * dx + dy * dy <= HIT_R * HIT_R) {
+        ec.dragging = i;
+        canvas.setPointerCapture(e.pointerId);
+        e.preventDefault();
+        return;
+      }
+    }
+    // ヒットなし → ブレードモードへフォールスルー
   }
   const mb = state.manualBlade;
   if (mb.step === 0) return;
@@ -1759,6 +1777,17 @@ function onEdgePointerDown(e) {
 }
 
 function onEdgePointerMove(e) {
+  // カード校正点ドラッグ
+  if (state.edgeCardCalib.dragging !== null) {
+    e.preventDefault();
+    const ec = state.edgeCardCalib;
+    const canvas = elems.resultProcessedCanvas;
+    const { x, y } = edgeCanvasCoords(e);
+    ec.pts[ec.dragging] = snapToEdge(canvas, x, y, 40);
+    applyEdgeCardCalib(true);
+    return;
+  }
+  // ブレード点ドラッグ
   const mb = state.manualBlade;
   if (!mb.dragging) return;
   e.preventDefault();
@@ -1772,6 +1801,11 @@ function onEdgePointerMove(e) {
 
 function onEdgePointerUp() {
   state.manualBlade.dragging = null;
+  // カード校正ドラッグ終了 → 曲線を最終再計算
+  if (state.edgeCardCalib.dragging !== null) {
+    state.edgeCardCalib.dragging = null;
+    applyEdgeCardCalib(false);
+  }
 }
 
 // =====================================================================
@@ -1938,7 +1972,7 @@ function startEdgeCardCalib() {
     elems.btnManualBladeReset?.classList.add('hidden');
     updateManualBladeHint(null);
   }
-  state.edgeCardCalib = { step: 1, pts: [] };
+  state.edgeCardCalib = { step: 1, pts: [], dragging: null };
   const canvas = elems.resultProcessedCanvas;
   if (canvas && state.edgeCanvasImageData) {
     canvas.getContext('2d').putImageData(state.edgeCanvasImageData, 0, 0);
@@ -1985,21 +2019,43 @@ function handleEdgeCardCalibClick(e) {
       return;
     }
     ec.step = 4;
-    const newPpm = distPx / CARD_LONG_MM;
-    state.calibPixelsPerMm = newPpm;
+    applyEdgeCardCalib(false);
+  }
+}
 
-    if (elems.resCalib) elems.resCalib.textContent = newPpm.toFixed(2);
-    if (elems.calibStatus) elems.calibStatus.textContent = `エッジカード3点校正: ${newPpm.toFixed(2)} px/mm`;
-    log(`エッジカード3点校正完了: ${newPpm.toFixed(2)} px/mm (${distPx.toFixed(0)} px = ${CARD_LONG_MM} mm)`, 'detect');
+// 校正計算・UI更新・再描画の共通処理
+// isDragging=true: ドラッグ中（軽量再描画）/ false: 確定（完全再計算）
+function applyEdgeCardCalib(isDragging) {
+  const ec = state.edgeCardCalib;
+  if (ec.pts.length < 3) return;
+  const [p1, p2, p3] = ec.pts;
+  const foot    = perpendicularFoot(p1, p2, p3);
+  const distPx  = Math.hypot(p3.imgX - foot.x, p3.imgY - foot.y);
+  if (distPx < 20) return;
 
-    // 校正値が変わったのでブレード曲線を再計算
-    if (state.manualBlade.ago && state.manualBlade.kissaki) {
-      redrawManualBladeOverlay();
-    } else {
+  const newPpm = distPx / CARD_LONG_MM;
+  state.calibPixelsPerMm = newPpm;
+  if (elems.resCalib)    elems.resCalib.textContent    = newPpm.toFixed(2);
+  if (elems.calibStatus) elems.calibStatus.textContent = `エッジカード3点校正: ${newPpm.toFixed(2)} px/mm`;
+  updateEdgeCalibHint(`完了 ✓  ${newPpm.toFixed(2)} px/mm — 点をドラッグして調整できます`);
+
+  const canvas = elems.resultProcessedCanvas;
+  if (state.manualBlade.ago && state.manualBlade.kissaki) {
+    if (isDragging) {
+      // ドラッグ中: エッジ復元 + 既存曲線を高速再描画（再トレースしない）
       canvas.getContext('2d').putImageData(state.edgeCanvasImageData, 0, 0);
+      if (state.lastBladeCurvePts) drawBladeEdgeCurve(state.lastBladeCurvePts);
+    } else {
+      // 確定時: 新校正値で曲線を完全再計算
+      redrawManualBladeOverlay();
     }
-    drawEdgeCardCalibOverlay();
-    updateEdgeCalibHint(`完了 ✓  ${newPpm.toFixed(2)} px/mm — やり直す場合は「やり直し」ボタン`);
+  } else {
+    canvas.getContext('2d').putImageData(state.edgeCanvasImageData, 0, 0);
+  }
+  drawEdgeCardCalibOverlay();
+
+  if (!isDragging) {
+    log(`エッジカード3点校正完了: ${newPpm.toFixed(2)} px/mm (${distPx.toFixed(0)} px = ${CARD_LONG_MM} mm)`, 'detect');
   }
 }
 
