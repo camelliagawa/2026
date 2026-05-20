@@ -1,3 +1,4 @@
+#72 resetApp()切り出し・drawCalibLabelインライン化・リセット時state漏れ修正
 #71 旧手動計測モード完全削除・bladeEqualScaleをstate管理に・bladeDotIntervalでプレビュー更新
 #70 コード整理：死コード削除・重複ヘルパー抽出・updateHint統合・不要コメント削除
 #69 グラフに等縮尺モード追加（縦横同一スケール）・自動モードトグルボタン

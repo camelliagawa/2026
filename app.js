@@ -415,24 +415,21 @@ function drawCalibRefOverlay(ctx, found) {
     ctx.arc(found.center.x, found.center.y, found.radiusPx, 0, Math.PI * 2);
     ctx.stroke();
     ctx.shadowBlur = 0;
-    drawCalibLabel(ctx, `500円硬貨 ✓  ${found.pixelsPerMm.toFixed(2)} px/mm`,
-      found.center.x, found.center.y - found.radiusPx - 6);
+    const text = `500円硬貨 ✓  ${found.pixelsPerMm.toFixed(2)} px/mm`;
+    let lx = found.center.x, ly = found.center.y - found.radiusPx - 6;
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textBaseline = 'bottom';
+    const tw = ctx.measureText(text).width;
+    lx = Math.max(4, Math.min(lx, ctx.canvas.width - tw - 8));
+    ly = Math.max(20, ly);
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    ctx.fillRect(lx - 3, ly - 17, tw + 6, 19);
+    ctx.fillStyle = '#ffff00';
+    ctx.fillText(text, lx, ly);
   }
   ctx.restore();
 }
 
-function drawCalibLabel(ctx, text, x, y) {
-  ctx.font = 'bold 14px sans-serif';
-  ctx.textBaseline = 'bottom';
-  const tw = ctx.measureText(text).width;
-  const canvasW = ctx.canvas ? ctx.canvas.width : elems.overlayCanvas.width;
-  x = Math.max(4, Math.min(x, canvasW - tw - 8));
-  y = Math.max(20, y);
-  ctx.fillStyle = 'rgba(0,0,0,0.65)';
-  ctx.fillRect(x - 3, y - 17, tw + 6, 19);
-  ctx.fillStyle = '#ffff00';
-  ctx.fillText(text, x, y);
-}
 
 function detectReferenceObject(tmpCanvas) {
   let src = null, gray = null, blurred = null, edges = null;
@@ -1914,27 +1911,34 @@ elems.btnSaveImage.addEventListener('click', () => {
 // =====================================================================
 // リセット
 // =====================================================================
-elems.btnReset.addEventListener('click', () => {
-  state.manualBlade = { step: 0, ago: null, kissaki: null, dragging: null };
-  state.edgeCardCalib = { step: 0, pts: [], dragging: null };
+function resetApp() {
+  state.manualBlade       = { step: 0, ago: null, kissaki: null, dragging: null };
+  state.edgeCardCalib     = { step: 0, pts: [], dragging: null };
   state.edgeCanvasImageData = null;
-  elems.resultProcessedCanvas?.classList.remove('manual-selecting');
-  elems.btnManualBlade?.classList.remove('hidden');
-  elems.btnManualBladeReset?.classList.add('hidden');
+  state.calibPixelsPerMm  = null;
+  state.lastCanvas        = null;
+  state.lastRectPts       = null;
+  state.lastBladeResult   = null;
+  state.lastKnifeMetrics  = null;
+  state.lastBladeCurvePts = null;
+  state.history           = [];
+
+  elems.resultProcessedCanvas.classList.remove('manual-selecting');
+  elems.btnManualBlade.classList.remove('hidden');
+  elems.btnManualBladeReset.classList.add('hidden');
   updateManualBladeHint(null);
-  elems.btnEdgeCardCalib?.classList.remove('hidden');
-  elems.btnEdgeCardCalibReset?.classList.add('hidden');
+  elems.btnEdgeCardCalib.classList.remove('hidden');
+  elems.btnEdgeCardCalibReset.classList.add('hidden');
   updateEdgeCalibHint(null);
   clearOverlay();
-  state.calibPixelsPerMm = null;
-  state.history = [];
+
   elems.historyBody.innerHTML = '';
   elems.calibStatus.textContent = '';
   elems.resCalib.textContent = '未設定';
   elems.resBladeLength.textContent = '--';
   elems.unitBladeLength.textContent = 'mm';
-  if (elems.resCurveLength) elems.resCurveLength.textContent = '--';
-  if (elems.unitCurveLength) elems.unitCurveLength.textContent = 'mm';
+  elems.resCurveLength.textContent = '--';
+  elems.unitCurveLength.textContent = 'mm';
   elems.resTotalLength.textContent = '--';
   elems.unitTotalLength.textContent = 'mm';
   elems.resBladeWidth.textContent = '--';
@@ -1943,14 +1947,16 @@ elems.btnReset.addEventListener('click', () => {
   elems.unitBbox.textContent = 'mm';
   elems.resAngle.textContent = '--';
   elems.resStatus.textContent = '待機中';
-  elems.processedCanvas.getContext('2d').clearRect(
-    0, 0, elems.processedCanvas.width, elems.processedCanvas.height
-  );
+  elems.processedCanvas.getContext('2d').clearRect(0, 0, elems.processedCanvas.width, elems.processedCanvas.height);
   elems.resultImageBox.classList.add('hidden');
-  if (elems.resultProcessedImageBox) elems.resultProcessedImageBox.classList.add('hidden');
-  if (elems.bladeCurveStatus) elems.bladeCurveStatus.classList.add('hidden');
-  if (elems.bladePreviewSection) elems.bladePreviewSection.classList.add('hidden');
+  elems.resultProcessedImageBox.classList.add('hidden');
+  elems.bladeCurveStatus.classList.add('hidden');
+  elems.bladePreviewSection.classList.add('hidden');
   updateBladeCurveBtn();
+}
+
+elems.btnReset.addEventListener('click', () => {
+  resetApp();
   log('全設定をリセット', 'warn');
 });
 
