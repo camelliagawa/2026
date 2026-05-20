@@ -110,6 +110,12 @@ const elems = {
   btnConfirmOk:       $('btn-confirm-ok'),
   btnConfirmRetry:    $('btn-confirm-retry'),
   confirmSummary:     $('confirm-summary'),
+  bladePreviewModal:       $('blade-preview-modal'),
+  bladePreviewCanvas:      $('blade-preview-canvas'),
+  bladePreviewInfo:        $('blade-preview-info'),
+  bladeYConst:             $('blade-y-const'),
+  btnBladePreviewCancel:   $('btn-blade-preview-cancel'),
+  btnBladePreviewOk:       $('btn-blade-preview-ok'),
 };
 
 // =====================================================================
@@ -1899,6 +1905,160 @@ function exportBladeEdgeCsv(pts) {
   log(`刃渡り曲線CSV出力: ${sampled.length}点 (${intervalMm}mm間隔)`, 'info');
 }
 
+// =====================================================================
+// 6列CSV（x y z rx ry rz）プレビュー＆出力
+// =====================================================================
+
+function computeBlade6ColData(pts, intervalMm, yConst) {
+  const sampled = sampleByMm(pts, intervalMm);
+  if (sampled.length < 2) return [];
+  return sampled.map((p, i) => {
+    const x = p.yMm;
+    const z = p.xMm;
+    let dx, dz;
+    if (i === 0) {
+      dx = sampled[1].yMm - sampled[0].yMm;
+      dz = sampled[1].xMm - sampled[0].xMm;
+    } else if (i === sampled.length - 1) {
+      dx = sampled[i].yMm - sampled[i - 1].yMm;
+      dz = sampled[i].xMm - sampled[i - 1].xMm;
+    } else {
+      dx = sampled[i + 1].yMm - sampled[i - 1].yMm;
+      dz = sampled[i + 1].xMm - sampled[i - 1].xMm;
+    }
+    const ds = Math.sqrt(dx * dx + dz * dz);
+    const rx = ds > 0 ? dx / ds : 0;
+    const rz = ds > 0 ? dz / ds : 1;
+    return { x, y: yConst, z, rx, ry: 0, rz };
+  });
+}
+
+function drawBladeCurvePreview(data) {
+  const canvas = elems.bladePreviewCanvas;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#0d1b2e';
+  ctx.fillRect(0, 0, W, H);
+  if (data.length < 2) return;
+
+  const mg = { left: 46, right: 12, top: 14, bottom: 32 };
+  const pw = W - mg.left - mg.right;
+  const ph = H - mg.top - mg.bottom;
+
+  const zMin = data[0].z, zMax = data[data.length - 1].z;
+  const xs = data.map(d => d.x);
+  const xMin = Math.min(...xs), xMax = Math.max(...xs);
+  const xPad = (xMax - xMin) * 0.15 || 0.5;
+  const zRange = zMax - zMin || 1;
+  const xRange = (xMax - xMin + xPad * 2) || 1;
+
+  const cx = z => mg.left + (z - zMin) / zRange * pw;
+  const cy = x => mg.top + (1 - (x - (xMin - xPad)) / xRange) * ph;
+
+  // Grid lines
+  ctx.strokeStyle = '#1e3050';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = mg.top + ph / 4 * i;
+    ctx.beginPath(); ctx.moveTo(mg.left, y); ctx.lineTo(mg.left + pw, y); ctx.stroke();
+  }
+
+  // Axes
+  ctx.strokeStyle = '#3a5070';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(mg.left, mg.top); ctx.lineTo(mg.left, mg.top + ph);
+  ctx.lineTo(mg.left + pw, mg.top + ph);
+  ctx.stroke();
+
+  // Curve
+  ctx.strokeStyle = '#00e5ff';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  data.forEach((d, i) => {
+    i === 0 ? ctx.moveTo(cx(d.z), cy(d.x)) : ctx.lineTo(cx(d.z), cy(d.x));
+  });
+  ctx.stroke();
+
+  // Dots
+  ctx.fillStyle = '#ff4455';
+  data.forEach(d => {
+    ctx.beginPath();
+    ctx.arc(cx(d.z), cy(d.x), 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // Axis labels
+  ctx.fillStyle = '#7090a0';
+  ctx.font = '10px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(`z ${zMin.toFixed(0)}`, mg.left, H - 4);
+  ctx.textAlign = 'right';
+  ctx.fillText(`${zMax.toFixed(0)} mm`, mg.left + pw, H - 4);
+  ctx.save();
+  ctx.translate(10, mg.top + ph / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.textAlign = 'center';
+  ctx.fillText('x (mm)', 0, 0);
+  ctx.restore();
+
+  // x range annotation
+  ctx.fillStyle = '#556677';
+  ctx.textAlign = 'right';
+  ctx.font = '9px sans-serif';
+  ctx.fillText(`${xMin.toFixed(2)}`, mg.left - 2, cy(xMin));
+  ctx.fillText(`${xMax.toFixed(2)}`, mg.left - 2, cy(xMax));
+
+  if (elems.bladePreviewInfo) {
+    elems.bladePreviewInfo.textContent =
+      `${data.length}点  z: ${zMin.toFixed(1)}〜${zMax.toFixed(1)} mm  x: ${xMin.toFixed(3)}〜${xMax.toFixed(3)} mm`;
+  }
+}
+
+function showBladeCurvePreview(pts) {
+  const intervalMm = parseFloat(elems.bladeDotInterval?.value) || 1;
+  const yConst = parseFloat(elems.bladeYConst?.value) || 30;
+  const data = computeBlade6ColData(pts, intervalMm, yConst);
+  drawBladeCurvePreview(data);
+  elems.bladePreviewModal.classList.remove('hidden');
+}
+
+function exportBlade6ColCsv(pts) {
+  const intervalMm = parseFloat(elems.bladeDotInterval?.value) || 1;
+  const yConst = parseFloat(elems.bladeYConst?.value) || 30;
+  const data = computeBlade6ColData(pts, intervalMm, yConst);
+  const rows = data.map(d =>
+    [d.x, d.y, d.z, d.rx, d.ry, d.rz].map(v => v.toFixed(5)).join(',')
+  );
+  const csv = ['x,y,z,rx,ry,rz', ...rows].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `blade-6col-${Date.now()}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  log(`刃渡り曲線CSV出力(6列): ${data.length}点 (${intervalMm}mm間隔, y=${yConst})`, 'info');
+}
+
+elems.btnBladePreviewCancel.addEventListener('click', () => {
+  elems.bladePreviewModal.classList.add('hidden');
+});
+
+elems.btnBladePreviewOk.addEventListener('click', () => {
+  elems.bladePreviewModal.classList.add('hidden');
+  exportBlade6ColCsv(state.lastBladeCurvePts);
+});
+
+elems.bladeYConst?.addEventListener('input', () => {
+  const pts = state.lastBladeCurvePts;
+  if (!pts || pts.length === 0) return;
+  const intervalMm = parseFloat(elems.bladeDotInterval?.value) || 1;
+  const yConst = parseFloat(elems.bladeYConst?.value) || 30;
+  drawBladeCurvePreview(computeBlade6ColData(pts, intervalMm, yConst));
+});
+
 elems.btnBladeCurve.addEventListener('click', () => {
   const pts = state.lastBladeCurvePts;
   if (!pts || pts.length === 0) {
@@ -1909,7 +2069,7 @@ elems.btnBladeCurve.addEventListener('click', () => {
     }
     return;
   }
-  exportBladeEdgeCsv(pts);
+  showBladeCurvePreview(pts);
 });
 
 elems.bladeDotInterval?.addEventListener('input', () => {
