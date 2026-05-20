@@ -717,6 +717,27 @@ details[open] .advanced-summary::before {
   padding: 12px 10px 14px;
 }
 
+.scale-toggle-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.scale-btn {
+  flex: 1;
+  font-size: 0.78rem;
+  padding: 5px 0;
+  background: #1e3050;
+  color: #7090a0;
+  border: 1px solid #3a5070;
+}
+
+.scale-btn-active {
+  background: #00e5ff22;
+  color: #00e5ff;
+  border-color: #00e5ff88;
+}
+
 #blade-preview-canvas {
   width: 100%;
   height: auto;

@@ -115,7 +115,11 @@ const elems = {
   bladePreviewInfo:        $('blade-preview-info'),
   bladeYConst:             $('blade-y-const'),
   btnBladePreviewOk:       $('btn-blade-preview-ok'),
+  btnScaleEqual:           $('btn-scale-equal'),
+  btnScaleAuto:            $('btn-scale-auto'),
 };
+
+let bladeEqualScale = true;
 
 // =====================================================================
 // ログ
@@ -1950,10 +1954,19 @@ function drawBladeCurvePreview(data) {
   const xMin = Math.min(...xs), xMax = Math.max(...xs);
   const xPad = (xMax - xMin) * 0.15 || 0.5;
   const zRange = zMax - zMin || 1;
-  const xRange = (xMax - xMin + xPad * 2) || 1;
+  const xRangePadded = (xMax - xMin + xPad * 2) || 1;
 
-  const cx = z => mg.left + (z - zMin) / zRange * pw;
-  const cy = x => mg.top + (x - (xMin - xPad)) / xRange * ph;
+  let cx, cy;
+  if (bladeEqualScale) {
+    const pxPerMm = Math.min(pw / zRange, ph / xRangePadded);
+    const offZ = (pw - zRange * pxPerMm) / 2;
+    const offX = (ph - xRangePadded * pxPerMm) / 2;
+    cx = z => mg.left + offZ + (z - zMin) * pxPerMm;
+    cy = x => mg.top + offX + (x - (xMin - xPad)) * pxPerMm;
+  } else {
+    cx = z => mg.left + (z - zMin) / zRange * pw;
+    cy = x => mg.top + (x - (xMin - xPad)) / xRangePadded * ph;
+  }
 
   // Grid lines
   ctx.strokeStyle = '#1e3050';
@@ -2006,8 +2019,8 @@ function drawBladeCurvePreview(data) {
   ctx.fillStyle = '#556677';
   ctx.textAlign = 'right';
   ctx.font = '9px sans-serif';
-  ctx.fillText(`${xMin.toFixed(2)}`, mg.left - 2, cy(xMin));
-  ctx.fillText(`${xMax.toFixed(2)}`, mg.left - 2, cy(xMax));
+  ctx.fillText(`${xMin.toFixed(1)}`, mg.left - 2, cy(xMin));
+  ctx.fillText(`${xMax.toFixed(1)}`, mg.left - 2, cy(xMax));
 
   if (elems.bladePreviewInfo) {
     elems.bladePreviewInfo.textContent =
@@ -2045,6 +2058,20 @@ function exportBlade6ColCsv(pts) {
 elems.btnBladePreviewOk.addEventListener('click', () => {
   exportBlade6ColCsv(state.lastBladeCurvePts);
 });
+
+function setBladeScale(equal) {
+  bladeEqualScale = equal;
+  elems.btnScaleEqual?.classList.toggle('scale-btn-active', equal);
+  elems.btnScaleAuto?.classList.toggle('scale-btn-active', !equal);
+  const pts = state.lastBladeCurvePts;
+  if (!pts || pts.length === 0) return;
+  const intervalMm = parseFloat(elems.bladeDotInterval?.value) || 1;
+  const yConst = parseFloat(elems.bladeYConst?.value) || 30;
+  drawBladeCurvePreview(computeBlade6ColData(pts, intervalMm, yConst));
+}
+
+elems.btnScaleEqual?.addEventListener('click', () => setBladeScale(true));
+elems.btnScaleAuto?.addEventListener('click', () => setBladeScale(false));
 
 elems.bladeYConst?.addEventListener('input', () => {
   const pts = state.lastBladeCurvePts;
