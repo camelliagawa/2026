@@ -228,6 +228,23 @@
     </div><!-- /#main-content -->
   </div><!-- /#app -->
 
+  <!-- 刃渡り曲線プレビューモーダル -->
+  <div id="blade-preview-modal" class="blade-preview-modal hidden">
+    <div class="blade-preview-box">
+      <h3>刃渡り曲線プレビュー</h3>
+      <canvas id="blade-preview-canvas" width="300" height="180"></canvas>
+      <p id="blade-preview-info" class="blade-preview-info"></p>
+      <div class="preview-form-row">
+        <label>y定数: <input type="number" id="blade-y-const" value="30" step="1" min="-9999" max="9999"> mm</label>
+      </div>
+      <p class="preview-col-hint">出力列: x, y, z, rx, ry, rz</p>
+      <div class="confirm-btn-row">
+        <button id="btn-blade-preview-cancel" class="btn btn-danger">キャンセル</button>
+        <button id="btn-blade-preview-ok" class="btn btn-ok">OK（ダウンロード）</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 検出確認ダイアログ -->
   <div id="detection-confirm" class="detection-confirm hidden">
     <div class="detection-confirm-box">

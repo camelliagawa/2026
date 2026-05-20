@@ -708,6 +708,71 @@ details[open] .advanced-summary::before {
 }
 
 /* ======= Detection Confirm Modal ======= */
+/* ======= Blade Curve Preview Modal ======= */
+.blade-preview-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.blade-preview-box {
+  background: #16213e;
+  border: 2px solid #00e5ff;
+  border-radius: 16px;
+  padding: 20px 20px 24px;
+  text-align: center;
+  width: min(360px, 94vw);
+  box-shadow: 0 0 40px rgba(0, 229, 255, 0.25);
+}
+
+.blade-preview-box h3 {
+  color: #00e5ff;
+  font-size: 1.05rem;
+  margin-bottom: 12px;
+}
+
+#blade-preview-canvas {
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+  display: block;
+}
+
+.blade-preview-info {
+  font-size: 0.78rem;
+  color: #a0a0b0;
+  margin: 8px 0 4px;
+  min-height: 1.2em;
+}
+
+.preview-form-row {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 6px;
+  font-size: 0.9rem;
+  color: #e0e0e0;
+}
+
+.preview-form-row input[type="number"] {
+  width: 70px;
+  padding: 6px 8px;
+  font-size: 0.9rem;
+  min-height: unset;
+}
+
+.preview-col-hint {
+  font-size: 0.75rem;
+  color: #666;
+  margin-bottom: 16px;
+  font-family: monospace;
+}
+
 .detection-confirm {
   position: fixed;
   inset: 0;
