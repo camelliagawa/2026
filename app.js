@@ -110,11 +110,10 @@ const elems = {
   btnConfirmOk:       $('btn-confirm-ok'),
   btnConfirmRetry:    $('btn-confirm-retry'),
   confirmSummary:     $('confirm-summary'),
-  bladePreviewModal:       $('blade-preview-modal'),
+  bladePreviewSection:     $('blade-preview-section'),
   bladePreviewCanvas:      $('blade-preview-canvas'),
   bladePreviewInfo:        $('blade-preview-info'),
   bladeYConst:             $('blade-y-const'),
-  btnBladePreviewCancel:   $('btn-blade-preview-cancel'),
   btnBladePreviewOk:       $('btn-blade-preview-ok'),
 };
 
@@ -2021,7 +2020,8 @@ function showBladeCurvePreview(pts) {
   const yConst = parseFloat(elems.bladeYConst?.value) || 30;
   const data = computeBlade6ColData(pts, intervalMm, yConst);
   drawBladeCurvePreview(data);
-  elems.bladePreviewModal.classList.remove('hidden');
+  elems.bladePreviewSection.classList.remove('hidden');
+  elems.bladePreviewSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 function exportBlade6ColCsv(pts) {
@@ -2042,12 +2042,7 @@ function exportBlade6ColCsv(pts) {
   log(`刃渡り曲線CSV出力(6列): ${data.length}点 (${intervalMm}mm間隔, y=${yConst})`, 'info');
 }
 
-elems.btnBladePreviewCancel.addEventListener('click', () => {
-  elems.bladePreviewModal.classList.add('hidden');
-});
-
 elems.btnBladePreviewOk.addEventListener('click', () => {
-  elems.bladePreviewModal.classList.add('hidden');
   exportBlade6ColCsv(state.lastBladeCurvePts);
 });
 
@@ -2145,6 +2140,7 @@ elems.btnReset.addEventListener('click', () => {
   elems.resultImageBox.classList.add('hidden');
   if (elems.resultProcessedImageBox) elems.resultProcessedImageBox.classList.add('hidden');
   if (elems.bladeCurveStatus) elems.bladeCurveStatus.classList.add('hidden');
+  if (elems.bladePreviewSection) elems.bladePreviewSection.classList.add('hidden');
   updateBladeCurveBtn();
   log('全設定をリセット', 'warn');
 });
