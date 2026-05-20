@@ -29,7 +29,7 @@ jobs:
           SHA=$(git rev-parse --short HEAD)
           NOTE=$(head -1 NOTES 2>/dev/null | tr -d '"<>|\\' | tr -d '\n')
           echo "{\"version\":\"$COUNT\",\"date\":\"$DATE\",\"sha\":\"$SHA\",\"note\":\"$NOTE\"}" > version.json
-          python3 -c "import sys; d=open('index.html',encoding='utf-8').read(); d=d.replace('<p id=\"version-info\" class=\"version-info\"></p>','<p id=\"version-info\" class=\"version-info\">'+sys.argv[1]+'</p>',1); open('index.html','w',encoding='utf-8').write(d)" "v${COUNT}  ${NOTE}  ${DATE}"
+          python3 -c "import sys,re; d=open('index.html',encoding='utf-8').read(); d=d.replace('<p id=\"version-info\" class=\"version-info\"></p>','<p id=\"version-info\" class=\"version-info\">'+sys.argv[1]+'</p>',1); d=re.sub(r'(src|href)=\"(app\\.js|style\\.css)\"', lambda m: m.group(1)+'=\"'+m.group(2)+'?v='+sys.argv[2]+'\"', d); open('index.html','w',encoding='utf-8').write(d)" "v${COUNT}  ${NOTE}  ${DATE}" "${SHA}"
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
