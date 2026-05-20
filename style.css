@@ -708,31 +708,13 @@ details[open] .advanced-summary::before {
 }
 
 /* ======= Detection Confirm Modal ======= */
-/* ======= Blade Curve Preview Modal ======= */
-.blade-preview-modal {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.82);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.blade-preview-box {
-  background: #16213e;
-  border: 2px solid #00e5ff;
-  border-radius: 16px;
-  padding: 20px 20px 24px;
-  text-align: center;
-  width: min(360px, 94vw);
-  box-shadow: 0 0 40px rgba(0, 229, 255, 0.25);
-}
-
-.blade-preview-box h3 {
-  color: #00e5ff;
-  font-size: 1.05rem;
-  margin-bottom: 12px;
+/* ======= Blade Curve Preview (inline) ======= */
+.blade-preview-section {
+  margin-top: 12px;
+  background: #0d1b2e;
+  border: 1px solid #00e5ff44;
+  border-radius: 10px;
+  padding: 12px 10px 14px;
 }
 
 #blade-preview-canvas {
@@ -744,8 +726,9 @@ details[open] .advanced-summary::before {
 
 .blade-preview-info {
   font-size: 0.78rem;
-  color: #a0a0b0;
-  margin: 8px 0 4px;
+  color: #7090a0;
+  margin: 6px 0 2px;
+  text-align: center;
   min-height: 1.2em;
 }
 
@@ -754,7 +737,7 @@ details[open] .advanced-summary::before {
   justify-content: center;
   align-items: center;
   gap: 8px;
-  margin: 10px 0 6px;
+  margin: 8px 0 4px;
   font-size: 0.9rem;
   color: #e0e0e0;
 }
@@ -768,8 +751,9 @@ details[open] .advanced-summary::before {
 
 .preview-col-hint {
   font-size: 0.75rem;
-  color: #666;
-  margin-bottom: 16px;
+  color: #555;
+  margin-bottom: 10px;
+  text-align: center;
   font-family: monospace;
 }
 
