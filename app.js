@@ -1953,7 +1953,7 @@ function drawBladeCurvePreview(data) {
   const xRange = (xMax - xMin + xPad * 2) || 1;
 
   const cx = z => mg.left + (z - zMin) / zRange * pw;
-  const cy = x => mg.top + (1 - (x - (xMin - xPad)) / xRange) * ph;
+  const cy = x => mg.top + (x - (xMin - xPad)) / xRange * ph;
 
   // Grid lines
   ctx.strokeStyle = '#1e3050';
