@@ -16,16 +16,12 @@ const state = {
   manualMode: false,
   manualPoints: [],              // 手動計測点 [{x,y}, ...]
   history: [],
-  autoDetectRunning: false,
-  autoCalibRunning: false,
   animFrameId: null,
   pendingResult: null,
   lastCanvas: null,
   lastRectPts: null,
   lastBladeResult: null,
   lastKnifeMetrics: null,
-  lastContourPts: null,
-  lastRect: null,
   lastBladeCurvePts: null,
   edgeCanvasImageData: null,
   manualBlade: { step: 0, ago: null, kissaki: null, dragging: null },
@@ -101,7 +97,6 @@ const elems = {
   btnEdgeCardCalib:       $('btn-edge-card-calib'),
   btnEdgeCardCalibReset:  $('btn-edge-card-calib-reset'),
   edgeCalibHint:          $('edge-calib-hint'),
-  versionInfo:            $('version-info'),
   historyBody:        $('history-body'),
   btnClearHistory:    $('btn-clear-history'),
   btnExportCsv:       $('btn-export-csv'),
@@ -314,13 +309,11 @@ elems.minArea.addEventListener('input', () => {
 elems.noiseMinArea.addEventListener('input', () => {
   state.params.noiseMinArea = +elems.noiseMinArea.value;
   elems.noiseMinAreaVal.textContent = elems.noiseMinArea.value;
-  // Re-run detection to apply new noise threshold
   if (state.lastCanvas) detectKnifeOnCanvas(state.lastCanvas, false);
 });
 elems.dotRadius.addEventListener('input', () => {
   state.params.dotRadius = +elems.dotRadius.value;
   elems.dotRadiusVal.textContent = elems.dotRadius.value;
-  // Redraw blade curve with new dot size
   if (state.manualBlade.ago && state.manualBlade.kissaki) redrawManualBladeOverlay();
 });
 elems.showEdges.addEventListener('change', () => {
@@ -387,24 +380,20 @@ function analyzeImage(canvas) {
 
   state.lastCanvas = canvas;
 
-  // 撮影画像をプレビューに表示
   elems.processedCanvas.width  = canvas.width;
   elems.processedCanvas.height = canvas.height;
   elems.processedCanvas.getContext('2d').drawImage(canvas, 0, 0);
 
-  // 読み込んだ画像を結果エリアに即座に表示（検出失敗時も画像が見えるように）
   const ac = elems.annotatedCanvas;
   ac.width  = canvas.width;
   ac.height = canvas.height;
   ac.getContext('2d').drawImage(canvas, 0, 0);
   elems.resultImageBox.classList.remove('hidden');
-  // モバイルでは結果タブに切り替えて画像を見えるようにする
   const resultTabBtn = document.querySelector('.tab-btn[data-tab="result"]');
   if (resultTabBtn && window.getComputedStyle(document.getElementById('tab-nav')).display !== 'none') {
     resultTabBtn.click();
   }
 
-  // Step 1: クレジットカード/コインを検出してスケール自動校正
   const calRef = detectReferenceObject(canvas);
   if (calRef) {
     state.calibPixelsPerMm = calRef.pixelsPerMm;
@@ -417,10 +406,8 @@ function analyzeImage(canvas) {
     log('クレジットカード/コインが検出できませんでした。カードが画面に収まっているか確認してください。寸法はpx表示になります。', 'warn');
   }
 
-  // Step 2: 包丁検出・計測
   detectKnifeOnCanvas(canvas, true);
 
-  // Step 3: 検出結果画像にカード枠を描画
   if (calRef) {
     drawCalibRefOverlay(elems.annotatedCanvas.getContext('2d'), calRef);
   }
@@ -782,7 +769,6 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
       cv.cvtColor(edgesDisplay, edgeRgba, cv.COLOR_GRAY2RGBA);
       cv.imshow(elems.resultProcessedCanvas, edgeRgba);
       edgeRgba.delete();
-      // Cache the clean edge image for manual selection snap/trace/redraw
       const ec = elems.resultProcessedCanvas;
       state.edgeCanvasImageData = ec.getContext('2d').getImageData(0, 0, ec.width, ec.height);
       elems.resultProcessedImageBox.classList.remove('hidden');
@@ -870,19 +856,6 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
         });
       }
 
-      // 刃渡り曲線用に輪郭点群と矩形を保存
-      state.lastContourPts = [];
-      for (let i = 0; i < bestContour.rows; i++) {
-        state.lastContourPts.push({
-          x: bestContour.data32S[i * 2],
-          y: bestContour.data32S[i * 2 + 1],
-        });
-      }
-      state.lastRect = {
-        angle:  bestRect.rect.angle,
-        center: { x: bestRect.rect.center.x, y: bestRect.rect.center.y },
-        size:   { width: bestRect.rect.size.width, height: bestRect.rect.size.height },
-      };
       updateBladeCurveBtn();
       bestContour.delete();
     } else {
@@ -1079,22 +1052,6 @@ function updateStatus(text) {
   elems.resStatus.textContent = text;
 }
 
-function applyCalibration() {
-  const ppm = state.calibPixelsPerMm;
-  if (!ppm || !state.lastKnifeMetrics) return;
-  const { bladeOnlyPx, totalLengthPx, bladeWidthPx, bbox, angle } = state.lastKnifeMetrics;
-  updateResults({
-    status: '包丁検出',
-    bladeOnlyPx,  bladeOnlyMm:   bladeOnlyPx / ppm,
-    totalLengthPx, totalLengthMm: totalLengthPx / ppm,
-    bladeWidthPx, bladeWidthMm:  bladeWidthPx / ppm,
-    bbox, angle,
-  });
-  if (state.lastCanvas && state.lastRectPts && state.lastBladeResult) {
-    drawAnnotatedResult(state.lastCanvas, state.lastRectPts, state.lastBladeResult, ppm);
-  }
-}
-
 // =====================================================================
 // 検出確認ダイアログ
 // =====================================================================
@@ -1263,7 +1220,6 @@ function detectJuncBin(wSmoothed, bottomEdge, maxBin, tipSide, BINS) {
 // 手動アゴ・切先指定
 // =====================================================================
 
-// Snap click/touch to nearest white (edge) pixel using cached clean edge data.
 function snapToEdge(canvas, x, y, radius) {
   const W = canvas.width, H = canvas.height;
   const src = state.edgeCanvasImageData;
@@ -1284,7 +1240,6 @@ function snapToEdge(canvas, x, y, radius) {
   return { imgX: bestX, imgY: bestY };
 }
 
-// Trace white edge pixels between ago and kissaki, fit quadratic, return pts[].
 function traceEdgeBetween(canvas, ago, kissaki) {
   const ppm = state.calibPixelsPerMm;
   const src = state.edgeCanvasImageData;
@@ -1358,7 +1313,6 @@ function traceEdgeBetween(canvas, ago, kissaki) {
   return out.length >= 2 ? out : null;
 }
 
-// Restore clean edge image, draw curve + dots, update measurement display.
 function redrawManualBladeOverlay() {
   const canvas = elems.resultProcessedCanvas;
   if (!canvas || !state.edgeCanvasImageData) return;
@@ -1404,15 +1358,13 @@ function redrawManualBladeOverlay() {
   if (state.edgeCardCalib.step === 4) drawEdgeCardCalibOverlay();
 }
 
-function updateManualBladeHint(text) {
-  if (!elems.manualBladeHint) return;
-  if (text) {
-    elems.manualBladeHint.textContent = text;
-    elems.manualBladeHint.classList.remove('hidden');
-  } else {
-    elems.manualBladeHint.classList.add('hidden');
-  }
+function updateHint(elem, text) {
+  if (!elem) return;
+  elem.textContent = text || '';
+  elem.classList.toggle('hidden', !text);
 }
+
+function updateManualBladeHint(text) { updateHint(elems.manualBladeHint, text); }
 
 function startManualBladeSelect() {
   // カード校正が進行中なら中断してUIを戻す
@@ -1554,15 +1506,7 @@ function perpendicularFoot(p1, p2, p3) {
   return { x: p1.imgX + t * dx, y: p1.imgY + t * dy };
 }
 
-function updateEdgeCalibHint(text) {
-  if (!elems.edgeCalibHint) return;
-  if (text) {
-    elems.edgeCalibHint.textContent = text;
-    elems.edgeCalibHint.classList.remove('hidden');
-  } else {
-    elems.edgeCalibHint.classList.add('hidden');
-  }
-}
+function updateEdgeCalibHint(text) { updateHint(elems.edgeCalibHint, text); }
 
 function drawEdgeCardCalibOverlay() {
   const canvas = elems.resultProcessedCanvas;
@@ -1855,11 +1799,9 @@ function drawBladeEdgeCurve(pts) {
       ctx.fill();
     });
 
-    // Red dots at アゴ (first point) and 切先 (last point)
     const endR = Math.max(3, Math.round(state.params.dotRadius * scale));
     const fontSize = Math.max(28, Math.round(32 * scale));
     [[pts[0], 'アゴ'], [pts[pts.length - 1], '切先']].forEach(([p, label]) => {
-      // White outline ring for contrast against any background
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = Math.max(3, Math.round(4 * scale));
       ctx.shadowColor = '#000000';
@@ -1867,14 +1809,12 @@ function drawBladeEdgeCurve(pts) {
       ctx.beginPath();
       ctx.arc(p.imgX, p.imgY, endR + ctx.lineWidth, 0, Math.PI * 2);
       ctx.stroke();
-      // Red fill with glow
       ctx.fillStyle = '#ff2222';
       ctx.shadowColor = '#ff0000';
       ctx.shadowBlur = blur;
       ctx.beginPath();
       ctx.arc(p.imgX, p.imgY, endR, 0, Math.PI * 2);
       ctx.fill();
-      // Label with black outline for readability
       ctx.shadowBlur = 0;
       ctx.font = `bold ${fontSize}px sans-serif`;
       ctx.textBaseline = 'bottom';
@@ -1893,24 +1833,16 @@ function drawBladeEdgeCurve(pts) {
   }
 }
 
-function exportBladeEdgeCsv(pts) {
-  const intervalMm = parseFloat(elems.bladeDotInterval?.value) || 1;
-  const sampled = sampleByMm(pts, intervalMm);
-  const rows = sampled.map(p => `${p.xMm.toFixed(2)},${p.yMm.toFixed(2)}`);
-  const csv = ['x_mm,y_mm', ...rows].join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `blade-curve-${Date.now()}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-  log(`刃渡り曲線CSV出力: ${sampled.length}点 (${intervalMm}mm間隔)`, 'info');
-}
-
 // =====================================================================
 // 6列CSV（x y z rx ry rz）プレビュー＆出力
 // =====================================================================
+
+function getBladeParams() {
+  return {
+    intervalMm: parseFloat(elems.bladeDotInterval?.value) || 1,
+    yConst: parseFloat(elems.bladeYConst?.value) || 30,
+  };
+}
 
 function computeBlade6ColData(pts, intervalMm, yConst) {
   const sampled = sampleByMm(pts, intervalMm);
@@ -1968,7 +1900,6 @@ function drawBladeCurvePreview(data) {
     cy = x => mg.top + (x - (xMin - xPad)) / xRangePadded * ph;
   }
 
-  // Grid lines
   ctx.strokeStyle = '#1e3050';
   ctx.lineWidth = 1;
   for (let i = 0; i <= 4; i++) {
@@ -1976,7 +1907,6 @@ function drawBladeCurvePreview(data) {
     ctx.beginPath(); ctx.moveTo(mg.left, y); ctx.lineTo(mg.left + pw, y); ctx.stroke();
   }
 
-  // Axes
   ctx.strokeStyle = '#3a5070';
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -1984,7 +1914,6 @@ function drawBladeCurvePreview(data) {
   ctx.lineTo(mg.left + pw, mg.top + ph);
   ctx.stroke();
 
-  // Curve
   ctx.strokeStyle = '#00e5ff';
   ctx.lineWidth = 2;
   ctx.beginPath();
@@ -1993,7 +1922,6 @@ function drawBladeCurvePreview(data) {
   });
   ctx.stroke();
 
-  // Dots
   ctx.fillStyle = '#ff4455';
   data.forEach(d => {
     ctx.beginPath();
@@ -2001,7 +1929,6 @@ function drawBladeCurvePreview(data) {
     ctx.fill();
   });
 
-  // Axis labels
   ctx.fillStyle = '#7090a0';
   ctx.font = '10px sans-serif';
   ctx.textAlign = 'left';
@@ -2015,7 +1942,6 @@ function drawBladeCurvePreview(data) {
   ctx.fillText('x (mm)', 0, 0);
   ctx.restore();
 
-  // x range annotation
   ctx.fillStyle = '#556677';
   ctx.textAlign = 'right';
   ctx.font = '9px sans-serif';
@@ -2029,17 +1955,14 @@ function drawBladeCurvePreview(data) {
 }
 
 function showBladeCurvePreview(pts) {
-  const intervalMm = parseFloat(elems.bladeDotInterval?.value) || 1;
-  const yConst = parseFloat(elems.bladeYConst?.value) || 30;
-  const data = computeBlade6ColData(pts, intervalMm, yConst);
-  drawBladeCurvePreview(data);
+  const { intervalMm, yConst } = getBladeParams();
+  drawBladeCurvePreview(computeBlade6ColData(pts, intervalMm, yConst));
   elems.bladePreviewSection.classList.remove('hidden');
   elems.bladePreviewSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 function exportBlade6ColCsv(pts) {
-  const intervalMm = parseFloat(elems.bladeDotInterval?.value) || 1;
-  const yConst = parseFloat(elems.bladeYConst?.value) || 30;
+  const { intervalMm, yConst } = getBladeParams();
   const data = computeBlade6ColData(pts, intervalMm, yConst);
   const rows = data.map(d =>
     [d.x, d.y, d.z, d.rx, d.ry, d.rz].map(v => v.toFixed(5)).join(',')
@@ -2065,8 +1988,7 @@ function setBladeScale(equal) {
   elems.btnScaleAuto?.classList.toggle('scale-btn-active', !equal);
   const pts = state.lastBladeCurvePts;
   if (!pts || pts.length === 0) return;
-  const intervalMm = parseFloat(elems.bladeDotInterval?.value) || 1;
-  const yConst = parseFloat(elems.bladeYConst?.value) || 30;
+  const { intervalMm, yConst } = getBladeParams();
   drawBladeCurvePreview(computeBlade6ColData(pts, intervalMm, yConst));
 }
 
@@ -2076,8 +1998,7 @@ elems.btnScaleAuto?.addEventListener('click', () => setBladeScale(false));
 elems.bladeYConst?.addEventListener('input', () => {
   const pts = state.lastBladeCurvePts;
   if (!pts || pts.length === 0) return;
-  const intervalMm = parseFloat(elems.bladeDotInterval?.value) || 1;
-  const yConst = parseFloat(elems.bladeYConst?.value) || 30;
+  const { intervalMm, yConst } = getBladeParams();
   drawBladeCurvePreview(computeBlade6ColData(pts, intervalMm, yConst));
 });
 
@@ -2132,7 +2053,7 @@ elems.btnSaveImage.addEventListener('click', () => {
 elems.btnReset.addEventListener('click', () => {
   exitManualModeQuiet();
   state.manualBlade = { step: 0, ago: null, kissaki: null, dragging: null };
-  state.edgeCardCalib = { step: 0, pts: [] };
+  state.edgeCardCalib = { step: 0, pts: [], dragging: null };
   state.edgeCanvasImageData = null;
   elems.resultProcessedCanvas?.classList.remove('manual-selecting');
   elems.btnManualBlade?.classList.remove('hidden');
@@ -2185,13 +2106,3 @@ window.addEventListener('resize', () => {
 log('アプリ起動完了。カメラ開始ボタンを押してください。', 'info');
 log('OpenCV.js を読み込み中...', 'info');
 
-// バージョン情報取得
-fetch('version.json')
-  .then(r => r.json())
-  .then(v => {
-    if (elems.versionInfo) {
-      const note = v.note ? `  ${v.note}` : '';
-      elems.versionInfo.textContent = `v${v.version}${note}  ${v.date}`;
-    }
-  })
-  .catch(() => {});
