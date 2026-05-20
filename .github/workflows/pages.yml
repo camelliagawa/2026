@@ -27,8 +27,15 @@ jobs:
           COUNT=$(git rev-list --count HEAD)
           DATE=$(TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M')
           SHA=$(git rev-parse --short HEAD)
-          NOTE=$(head -1 NOTES 2>/dev/null | sed 's/"/\\"/g' | tr -d '\n')
+          NOTE=$(head -1 NOTES 2>/dev/null | tr -d '"' | tr -d '\n')
           echo "{\"version\":\"$COUNT\",\"date\":\"$DATE\",\"sha\":\"$SHA\",\"note\":\"$NOTE\"}" > version.json
+          python3 -c "
+import sys
+txt = open('index.html', encoding='utf-8').read()
+old = '<p id=\"version-info\" class=\"version-info\"></p>'
+new = '<p id=\"version-info\" class=\"version-info\">' + sys.argv[1] + '</p>'
+open('index.html', 'w', encoding='utf-8').write(txt.replace(old, new, 1))
+" "v${COUNT}  ${NOTE}  ${DATE}"
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
