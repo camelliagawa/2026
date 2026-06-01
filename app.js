@@ -205,22 +205,31 @@ function applyBlobToApp(blob) {
 // OpenCV 準備
 // =====================================================================
 window.onOpenCvReady = () => {
-  state.opencvReady = true;
-  log('OpenCV.js 読み込み完了', 'info');
-  elems.opencvStatus.textContent = 'OpenCV 準備完了 ✓';
-  elems.opencvStatus.className = 'opencv-status opencv-ready';
-  if (state.cameraActive) {
-    elems.btnCapture.disabled = false;
+  // onload 時点では WASM のコンパイルが未完了の場合がある（モバイルで顕著）。
+  // cv.Mat が使えるか確認し、未完了なら onRuntimeInitialized を待つ。
+  function cvInit() {
+    state.opencvReady = true;
+    log('OpenCV.js 読み込み完了', 'info');
+    elems.opencvStatus.textContent = 'OpenCV 準備完了 ✓';
+    elems.opencvStatus.className = 'opencv-status opencv-ready';
+    if (state.cameraActive) {
+      elems.btnCapture.disabled = false;
+    }
+    initCameraList();
+    loadImageBlob().then(blob => {
+      if (!blob) return;
+      elems.btnReloadLast.classList.remove('hidden');
+      log('前回の画像を自動読み込みしました', 'info');
+      elems.savedImageHint.textContent = '前回の画像を自動読み込みしました';
+      elems.savedImageHint.classList.remove('hidden');
+      applyBlobToApp(blob);
+    });
   }
-  initCameraList();
-  loadImageBlob().then(blob => {
-    if (!blob) return;
-    elems.btnReloadLast.classList.remove('hidden');
-    log('前回の画像を自動読み込みしました', 'info');
-    elems.savedImageHint.textContent = '前回の画像を自動読み込みしました';
-    elems.savedImageHint.classList.remove('hidden');
-    applyBlobToApp(blob);
-  });
+  if (cv.Mat) {
+    cvInit();
+  } else {
+    cv['onRuntimeInitialized'] = cvInit;
+  }
 };
 
 window.onOpenCvError = () => {
