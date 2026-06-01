@@ -594,6 +594,22 @@ select:focus, input:focus {
   display: none;
 }
 
+/* ======= Reload last image button ======= */
+.btn-reload-last {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  background: #1a2a4a;
+  color: #a0b8d8;
+  border: 1px solid #2a4a7a;
+  font-size: 0.9rem;
+}
+
+.btn-reload-last:hover {
+  background: #243a5e;
+  color: #c8daf0;
+}
+
 /* ======= Card Calibration Row ======= */
 .step-label {
   font-size: 1rem;

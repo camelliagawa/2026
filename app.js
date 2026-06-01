@@ -111,6 +111,7 @@ const elems = {
   btnScaleEqual:           $('btn-scale-equal'),
   btnScaleAuto:            $('btn-scale-auto'),
   savedImageHint:          $('saved-image-hint'),
+  btnReloadLast:           $('btn-reload-last'),
 };
 
 
@@ -214,6 +215,7 @@ window.onOpenCvReady = () => {
   initCameraList();
   loadImageBlob().then(blob => {
     if (!blob) return;
+    elems.btnReloadLast.classList.remove('hidden');
     log('前回の画像を自動読み込みしました', 'info');
     elems.savedImageHint.textContent = '前回の画像を自動読み込みしました';
     elems.savedImageHint.classList.remove('hidden');
@@ -650,6 +652,7 @@ elems.fileInput.addEventListener('change', (e) => {
     saveCanvasToIDB(canvas);   // canvas描画後にJPEGとして保存（File直接保存より確実）
     elems.savedImageHint.textContent = '次回起動時に自動読み込みします';
     elems.savedImageHint.classList.remove('hidden');
+    elems.btnReloadLast.classList.remove('hidden');
     // ファイル読み込み時はカメラ不要なのでOpenCVだけ確認
     if (!state.opencvReady) {
       log('OpenCV未準備のため解析不可。少し待ってから再試行してください。', 'warn');
@@ -2041,6 +2044,18 @@ function resetApp() {
 elems.btnReset.addEventListener('click', () => {
   resetApp();
   log('全設定をリセット', 'warn');
+});
+
+elems.btnReloadLast.addEventListener('click', () => {
+  if (!state.opencvReady) {
+    log('OpenCV未準備のため解析不可。少し待ってから再試行してください。', 'warn');
+    return;
+  }
+  loadImageBlob().then(blob => {
+    if (!blob) { log('保存済み画像がありません', 'warn'); return; }
+    log('前回の画像を再読み込みしました', 'info');
+    applyBlobToApp(blob);
+  });
 });
 
 // =====================================================================
