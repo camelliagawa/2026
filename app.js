@@ -1909,8 +1909,12 @@ function computeBlade6ColData(pts, intervalMm, yConst) {
 
 function drawBladeCurvePreview(data) {
   const canvas = elems.bladePreviewCanvas;
+  // 表示幅に合わせてcanvasの解像度を設定（CSS width:100% に追従）
+  const W = canvas.offsetWidth || 300;
+  const H = Math.round(W * 190 / 300);
+  canvas.width  = W;
+  canvas.height = H;
   const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
   ctx.clearRect(0, 0, W, H);
   ctx.fillStyle = '#0d1b2e';
   ctx.fillRect(0, 0, W, H);

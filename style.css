@@ -940,7 +940,7 @@ details[open] .advanced-summary::before {
 
   #main-content {
     display: grid;
-    grid-template-columns: 280px 1fr 300px;
+    grid-template-columns: 280px 280px 1fr;
     grid-template-rows: auto 1fr;
     grid-template-areas:
       "action  display result"
@@ -1014,6 +1014,20 @@ details[open] .advanced-summary::before {
 
   .check-label {
     min-height: 36px;
+  }
+
+  /* 結果列のキャンバスを幅いっぱいに */
+  #annotated-canvas,
+  #result-processed-canvas {
+    width: 100%;
+    height: auto;
+    max-height: none;
+  }
+
+  /* 曲線プレビューも幅に追従 */
+  #blade-preview-canvas {
+    width: 100%;
+    height: auto;
   }
 }
 
