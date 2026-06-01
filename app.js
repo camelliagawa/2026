@@ -110,6 +110,7 @@ const elems = {
   btnBladePreviewOk:       $('btn-blade-preview-ok'),
   btnScaleEqual:           $('btn-scale-equal'),
   btnScaleAuto:            $('btn-scale-auto'),
+  savedImageHint:          $('saved-image-hint'),
 };
 
 
@@ -128,6 +129,63 @@ function log(msg, type = 'info') {
 }
 
 // =====================================================================
+// 直前画像の保存・復元（IndexedDB）
+// =====================================================================
+const IDB_NAME  = 'knife-app';
+const IDB_STORE = 'images';
+const IDB_KEY   = 'last';
+
+function openIDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = e => e.target.result.createObjectStore(IDB_STORE);
+    req.onsuccess  = e => resolve(e.target.result);
+    req.onerror    = e => reject(e.target.error);
+  });
+}
+
+async function saveImageBlob(blob) {
+  try {
+    const db = await openIDB();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).put(blob, IDB_KEY);
+      tx.oncomplete = resolve;
+      tx.onerror    = e => reject(e.target.error);
+    });
+  } catch (_) { /* ストレージ書き込み失敗は無視 */ }
+}
+
+async function loadImageBlob() {
+  try {
+    const db = await openIDB();
+    return await new Promise((resolve, reject) => {
+      const req = db.transaction(IDB_STORE, 'readonly')
+                    .objectStore(IDB_STORE).get(IDB_KEY);
+      req.onsuccess = e => resolve(e.target.result ?? null);
+      req.onerror   = e => reject(e.target.error);
+    });
+  } catch (_) { return null; }
+}
+
+function applyBlobToApp(blob) {
+  const url = URL.createObjectURL(blob);
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width  = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    canvas.getContext('2d').drawImage(img, 0, 0);
+    URL.revokeObjectURL(url);
+    elems.overlayCanvas.width  = img.naturalWidth;
+    elems.overlayCanvas.height = img.naturalHeight;
+    analyzeImage(canvas);
+  };
+  img.onerror = () => URL.revokeObjectURL(url);
+  img.src = url;
+}
+
+// =====================================================================
 // OpenCV 準備
 // =====================================================================
 window.onOpenCvReady = () => {
@@ -139,6 +197,13 @@ window.onOpenCvReady = () => {
     elems.btnCapture.disabled = false;
   }
   initCameraList();
+  loadImageBlob().then(blob => {
+    if (!blob) return;
+    log('前回の画像を自動読み込みしました', 'info');
+    elems.savedImageHint.textContent = '前回の画像を自動読み込みしました';
+    elems.savedImageHint.classList.remove('hidden');
+    applyBlobToApp(blob);
+  });
 };
 
 window.onOpenCvError = () => {
@@ -559,6 +624,9 @@ elems.fileInput.addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (!file) return;
   e.target.value = '';   // 同じファイルを再選択できるようにリセット
+  saveImageBlob(file);   // 次回起動時の自動読み込み用に保存
+  elems.savedImageHint.textContent = '次回起動時に自動読み込みします';
+  elems.savedImageHint.classList.remove('hidden');
   const url = URL.createObjectURL(file);
   const img = new Image();
   img.onload = () => {

@@ -848,6 +848,13 @@ details[open] .advanced-summary::before {
   display: none !important;
 }
 
+.saved-image-hint {
+  font-size: 0.78rem;
+  color: #a0a0c0;
+  margin-top: 4px;
+  text-align: center;
+}
+
 /* ======= Desktop Layout (768px以上) ======= */
 @media (min-width: 768px) {
   #app {
