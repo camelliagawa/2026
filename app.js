@@ -652,17 +652,8 @@ elems.btnCapture.addEventListener('click', () => {
 // =====================================================================
 // ファイル→Canvas 変換（HEIC対応）
 // =====================================================================
-async function fileToCanvas(file) {
-  let blob = file;
-  const isHeic = /^image\/hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name);
-  if (isHeic) {
-    if (typeof heic2any === 'undefined') {
-      throw new Error('HEIC変換ライブラリの読み込み中です。しばらく待ってから再試行してください');
-    }
-    log('HEICファイルをJPEGに変換中...', 'info');
-    const result = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.92 });
-    blob = Array.isArray(result) ? result[0] : result;
-  }
+
+function blobToCanvas(blob) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(blob);
     const img = new Image();
@@ -677,6 +668,36 @@ async function fileToCanvas(file) {
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('画像の読み込みに失敗しました')); };
     img.src = url;
   });
+}
+
+async function fileToCanvas(file) {
+  const isHeic = /^image\/hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name);
+
+  // HEIC以外はそのまま読み込む
+  if (!isHeic) return blobToCanvas(file);
+
+  // HEICをまず直接読み込む（macOS Safari等ネイティブ対応環境はここで成功）
+  try {
+    const canvas = await blobToCanvas(file);
+    return canvas;
+  } catch (_) { /* ネイティブ非対応 → heic2any へ */ }
+
+  // heic2any で変換（90秒タイムアウト付き）
+  if (typeof heic2any === 'undefined') {
+    throw new Error('HEIC変換ライブラリの読み込み中です。ページを再読み込みしてお試しください');
+  }
+  log('HEICファイルをJPEGに変換中...（初回は30秒ほどかかる場合があります）', 'info');
+  const heicPromise = heic2any({ blob: file, toType: 'image/jpeg', quality: 0.80 })
+    .then(r => Array.isArray(r) ? r[0] : r);
+  const timeoutPromise = new Promise((_, reject) => setTimeout(() =>
+    reject(new Error(
+      'HEIC変換がタイムアウトしました。\n' +
+      '【解決策】Google Driveでファイルを右クリック→「プレビュー」→「ダウンロード」すると' +
+      'JPEGで保存されます。そのJPEGを選択してください。'
+    )), 90000));
+  const blob = await Promise.race([heicPromise, timeoutPromise]);
+  log('HEIC→JPEG変換完了', 'info');
+  return blobToCanvas(blob);
 }
 
 async function handleFileInput(file) {
