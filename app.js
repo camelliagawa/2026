@@ -112,6 +112,7 @@ const elems = {
   btnScaleAuto:            $('btn-scale-auto'),
   savedImageHint:          $('saved-image-hint'),
   btnReloadLast:           $('btn-reload-last'),
+  btnDownloadSaved:        $('btn-download-saved'),
 };
 
 
@@ -219,6 +220,7 @@ window.onOpenCvReady = () => {
     loadImageBlob().then(blob => {
       if (!blob) return;
       elems.btnReloadLast.classList.remove('hidden');
+      elems.btnDownloadSaved.classList.remove('hidden');
       log('前回の画像を自動読み込みしました', 'info');
       elems.savedImageHint.textContent = '前回の画像を自動読み込みしました';
       elems.savedImageHint.classList.remove('hidden');
@@ -662,6 +664,7 @@ elems.fileInput.addEventListener('change', (e) => {
     elems.savedImageHint.textContent = '次回起動時に自動読み込みします';
     elems.savedImageHint.classList.remove('hidden');
     elems.btnReloadLast.classList.remove('hidden');
+    elems.btnDownloadSaved.classList.remove('hidden');
     // ファイル読み込み時はカメラ不要なのでOpenCVだけ確認
     if (!state.opencvReady) {
       log('OpenCV未準備のため解析不可。少し待ってから再試行してください。', 'warn');
@@ -2064,6 +2067,19 @@ elems.btnReloadLast.addEventListener('click', () => {
     if (!blob) { log('保存済み画像がありません', 'warn'); return; }
     log('前回の画像を再読み込みしました', 'info');
     applyBlobToApp(blob);
+  });
+});
+
+elems.btnDownloadSaved.addEventListener('click', () => {
+  loadImageBlob().then(blob => {
+    if (!blob) { log('保存済み画像がありません', 'warn'); return; }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'knife-saved.jpg';
+    a.click();
+    URL.revokeObjectURL(url);
+    log('保存済み画像をダウンロードしました', 'info');
   });
 });
 

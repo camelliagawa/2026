@@ -610,6 +610,22 @@ select:focus, input:focus {
   color: #c8daf0;
 }
 
+/* ======= Download saved image button ======= */
+.btn-download-saved {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  background: #1a2a4a;
+  color: #80c0a0;
+  border: 1px solid #2a5a3a;
+  font-size: 0.9rem;
+}
+
+.btn-download-saved:hover {
+  background: #1e3a2e;
+  color: #a0e0c0;
+}
+
 /* ======= Card Calibration Row ======= */
 .step-label {
   font-size: 1rem;
