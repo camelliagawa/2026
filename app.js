@@ -153,7 +153,10 @@ async function saveImageBlob(blob) {
       tx.oncomplete = resolve;
       tx.onerror    = e => reject(e.target.error);
     });
-  } catch (_) { /* ストレージ書き込み失敗は無視 */ }
+    log('画像をIndexedDBに保存しました', 'info');
+  } catch (e) {
+    log(`画像の保存に失敗しました: ${e}`, 'warn');
+  }
 }
 
 async function loadImageBlob() {
@@ -165,7 +168,16 @@ async function loadImageBlob() {
       req.onsuccess = e => resolve(e.target.result ?? null);
       req.onerror   = e => reject(e.target.error);
     });
-  } catch (_) { return null; }
+  } catch (e) {
+    log(`保存済み画像の読み込みに失敗しました: ${e}`, 'warn');
+    return null;
+  }
+}
+
+function saveCanvasToIDB(canvas) {
+  canvas.toBlob(blob => {
+    if (blob) saveImageBlob(blob);
+  }, 'image/jpeg', 0.92);
 }
 
 function applyBlobToApp(blob) {
@@ -624,9 +636,6 @@ elems.fileInput.addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (!file) return;
   e.target.value = '';   // 同じファイルを再選択できるようにリセット
-  saveImageBlob(file);   // 次回起動時の自動読み込み用に保存
-  elems.savedImageHint.textContent = '次回起動時に自動読み込みします';
-  elems.savedImageHint.classList.remove('hidden');
   const url = URL.createObjectURL(file);
   const img = new Image();
   img.onload = () => {
@@ -635,6 +644,9 @@ elems.fileInput.addEventListener('change', (e) => {
     canvas.height = img.naturalHeight;
     canvas.getContext('2d').drawImage(img, 0, 0);
     URL.revokeObjectURL(url);
+    saveCanvasToIDB(canvas);   // canvas描画後にJPEGとして保存（File直接保存より確実）
+    elems.savedImageHint.textContent = '次回起動時に自動読み込みします';
+    elems.savedImageHint.classList.remove('hidden');
     // ファイル読み込み時はカメラ不要なのでOpenCVだけ確認
     if (!state.opencvReady) {
       log('OpenCV未準備のため解析不可。少し待ってから再試行してください。', 'warn');
