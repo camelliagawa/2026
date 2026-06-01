@@ -26,6 +26,7 @@
           </button>
           <div id="crosshair-h"></div>
           <div id="crosshair-v"></div>
+          <div id="drop-zone-hint" class="drop-zone-hint">📷 ここに画像をドロップ</div>
         </div>
 
         <div id="canvas-container">
@@ -244,6 +245,9 @@
     </div><!-- /#main-content -->
   </div><!-- /#app -->
 
+  <!-- ドラッグ&ドロップ オーバーレイ -->
+  <div id="drag-overlay" class="drag-overlay hidden">📷 ここに画像をドロップ</div>
+
   <!-- 検出確認ダイアログ -->
   <div id="detection-confirm" class="detection-confirm hidden">
     <div class="detection-confirm-box">
@@ -257,6 +261,8 @@
     </div>
   </div>
 
+  <!-- HEIC変換ライブラリ（iPhoneからのHEICファイルをJPEGに変換） -->
+  <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
   <!-- OpenCV.js (CDNから読み込み) -->
   <script async src="https://docs.opencv.org/4.9.0/opencv.js" onload="onOpenCvReady()" onerror="onOpenCvError()"></script>
   <script src="app.js"></script>

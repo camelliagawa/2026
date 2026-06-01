@@ -113,6 +113,7 @@ const elems = {
   savedImageHint:          $('saved-image-hint'),
   btnReloadLast:           $('btn-reload-last'),
   btnDownloadSaved:        $('btn-download-saved'),
+  dragOverlay:             $('drag-overlay'),
 };
 
 
@@ -648,36 +649,98 @@ elems.btnCapture.addEventListener('click', () => {
   analyzeImage(canvas);
 });
 
+// =====================================================================
+// ファイル→Canvas 変換（HEIC対応）
+// =====================================================================
+async function fileToCanvas(file) {
+  let blob = file;
+  const isHeic = /^image\/hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name);
+  if (isHeic) {
+    if (typeof heic2any === 'undefined') {
+      throw new Error('HEIC変換ライブラリの読み込み中です。しばらく待ってから再試行してください');
+    }
+    log('HEICファイルをJPEGに変換中...', 'info');
+    const result = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.92 });
+    blob = Array.isArray(result) ? result[0] : result;
+  }
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width  = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      canvas.getContext('2d').drawImage(img, 0, 0);
+      URL.revokeObjectURL(url);
+      resolve(canvas);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('画像の読み込みに失敗しました')); };
+    img.src = url;
+  });
+}
+
+async function handleFileInput(file) {
+  let canvas;
+  try {
+    canvas = await fileToCanvas(file);
+  } catch (e) {
+    log(e.message, 'error');
+    return;
+  }
+  saveCanvasToIDB(canvas);
+  elems.savedImageHint.textContent = '次回起動時に自動読み込みします';
+  elems.savedImageHint.classList.remove('hidden');
+  elems.btnReloadLast.classList.remove('hidden');
+  elems.btnDownloadSaved.classList.remove('hidden');
+  if (!state.opencvReady) {
+    log('OpenCV未準備のため解析不可。少し待ってから再試行してください。', 'warn');
+    return;
+  }
+  log(`画像読み込み: ${canvas.width}×${canvas.height}`, 'info');
+  elems.overlayCanvas.width  = canvas.width;
+  elems.overlayCanvas.height = canvas.height;
+  analyzeImage(canvas);
+}
+
 elems.fileInput.addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (!file) return;
   e.target.value = '';   // 同じファイルを再選択できるようにリセット
-  const url = URL.createObjectURL(file);
-  const img = new Image();
-  img.onload = () => {
-    const canvas = document.createElement('canvas');
-    canvas.width  = img.naturalWidth;
-    canvas.height = img.naturalHeight;
-    canvas.getContext('2d').drawImage(img, 0, 0);
-    URL.revokeObjectURL(url);
-    saveCanvasToIDB(canvas);   // canvas描画後にJPEGとして保存（File直接保存より確実）
-    elems.savedImageHint.textContent = '次回起動時に自動読み込みします';
-    elems.savedImageHint.classList.remove('hidden');
-    elems.btnReloadLast.classList.remove('hidden');
-    elems.btnDownloadSaved.classList.remove('hidden');
-    // ファイル読み込み時はカメラ不要なのでOpenCVだけ確認
-    if (!state.opencvReady) {
-      log('OpenCV未準備のため解析不可。少し待ってから再試行してください。', 'warn');
-      return;
-    }
-    log(`画像読み込み: ${img.naturalWidth}×${img.naturalHeight}`, 'info');
-    // オーバーレイキャンバスを画像サイズに合わせる
-    elems.overlayCanvas.width  = img.naturalWidth;
-    elems.overlayCanvas.height = img.naturalHeight;
-    analyzeImage(canvas);
-  };
-  img.onerror = () => log('画像の読み込みに失敗しました', 'error');
-  img.src = url;
+  handleFileInput(file);
+});
+
+// =====================================================================
+// ドラッグ&ドロップ（PC用・ページ全体が対象）
+// =====================================================================
+let dragCounter = 0;   // enter/leave のネスト対策
+
+document.addEventListener('dragenter', (e) => {
+  e.preventDefault();
+  dragCounter++;
+  elems.dragOverlay.classList.remove('hidden');
+});
+
+document.addEventListener('dragover', (e) => {
+  e.preventDefault();
+});
+
+document.addEventListener('dragleave', () => {
+  dragCounter--;
+  if (dragCounter <= 0) {
+    dragCounter = 0;
+    elems.dragOverlay.classList.add('hidden');
+  }
+});
+
+document.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dragCounter = 0;
+  elems.dragOverlay.classList.add('hidden');
+  const file = e.dataTransfer.files[0];
+  if (!file) return;
+  const isImage = file.type.startsWith('image/') || /\.hei[cf]$/i.test(file.name);
+  if (!isImage) { log('画像ファイルをドロップしてください', 'warn'); return; }
+  handleFileInput(file);
 });
 
 // =====================================================================
