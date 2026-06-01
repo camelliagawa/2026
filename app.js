@@ -146,10 +146,11 @@ function openIDB() {
 
 async function saveImageBlob(blob) {
   try {
-    const db = await openIDB();
+    const buf  = await blob.arrayBuffer();   // BlobをArrayBufferに変換（全環境で確実に保存可能）
+    const db   = await openIDB();
     await new Promise((resolve, reject) => {
       const tx = db.transaction(IDB_STORE, 'readwrite');
-      tx.objectStore(IDB_STORE).put(blob, IDB_KEY);
+      tx.objectStore(IDB_STORE).put({ data: buf, type: blob.type }, IDB_KEY);
       tx.oncomplete = resolve;
       tx.onerror    = e => reject(e.target.error);
     });
@@ -161,13 +162,15 @@ async function saveImageBlob(blob) {
 
 async function loadImageBlob() {
   try {
-    const db = await openIDB();
-    return await new Promise((resolve, reject) => {
+    const db     = await openIDB();
+    const stored = await new Promise((resolve, reject) => {
       const req = db.transaction(IDB_STORE, 'readonly')
                     .objectStore(IDB_STORE).get(IDB_KEY);
       req.onsuccess = e => resolve(e.target.result ?? null);
       req.onerror   = e => reject(e.target.error);
     });
+    if (!stored) return null;
+    return new Blob([stored.data], { type: stored.type });
   } catch (e) {
     log(`保存済み画像の読み込みに失敗しました: ${e}`, 'warn');
     return null;
