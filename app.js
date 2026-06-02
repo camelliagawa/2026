@@ -2218,7 +2218,34 @@ log('OpenCV.js を読み込み中...', 'info');
 
     const scene = new THREE.Scene();
     scene.add(new THREE.GridHelper(80, 40, 0x1e3050, 0x162440));
-    scene.add(new THREE.AxesHelper(2));
+
+    // ---- XYZ 軸（ArrowHelper + HTMLラベル）----
+    const axDefs = [
+      { dir: new THREE.Vector3(1,0,0), color: 0xff4444, css: '#ff6666', label: 'X' },
+      { dir: new THREE.Vector3(0,1,0), color: 0x44cc44, css: '#66ee66', label: 'Y' },
+      { dir: new THREE.Vector3(0,0,1), color: 0x4499ff, css: '#66aaff', label: 'Z' },
+    ];
+    let axLen = 5;
+    const axisGroup = new THREE.Group();
+    scene.add(axisGroup);
+    const axArrows = axDefs.map(({ dir, color }) => {
+      const a = new THREE.ArrowHelper(dir, new THREE.Vector3(), axLen, color, axLen*0.2, axLen*0.12);
+      axisGroup.add(a);
+      return a;
+    });
+    // HTMLラベルオーバーレイ
+    const labelDiv = document.createElement('div');
+    labelDiv.style.cssText = 'position:absolute;inset:0;pointer-events:none;overflow:hidden';
+    wrap.appendChild(labelDiv);
+    const axisLabels = axDefs.map(({ css, label }) => {
+      const el = document.createElement('div');
+      el.textContent = label;
+      el.style.cssText = `position:absolute;font:700 14px/1 sans-serif;color:${css};` +
+        `text-shadow:0 1px 4px #000,0 0 8px #000;transform:translate(-50%,-50%);display:none`;
+      labelDiv.appendChild(el);
+      return el;
+    });
+    const _tmp = new THREE.Vector3();
 
     const camera = new THREE.PerspectiveCamera(45, W / H, 0.001, 2000);
     const o = { theta: 0.4, phi: 1.0, r: 30, tx: 0, ty: 0, tz: 0 };
@@ -2302,7 +2329,22 @@ log('OpenCV.js を読み込み中...', 'info');
     const dg = new THREE.Group();
     scene.add(dg);
 
-    (function render() { requestAnimationFrame(render); renderer.render(scene, camera); })();
+    (function render() {
+      requestAnimationFrame(render);
+      // 軸グループをカメラ注視点に追従
+      axisGroup.position.set(o.tx, o.ty, o.tz);
+      // 3D→2D投影でHTMLラベル位置を更新
+      const cw = canvas.clientWidth, ch = canvas.clientHeight;
+      axDefs.forEach(({ dir }, i) => {
+        _tmp.copy(dir).multiplyScalar(axLen).add(axisGroup.position);
+        _tmp.project(camera);
+        if (_tmp.z > 1) { axisLabels[i].style.display = 'none'; return; }
+        axisLabels[i].style.display = '';
+        axisLabels[i].style.left = ((_tmp.x * 0.5 + 0.5) * cw) + 'px';
+        axisLabels[i].style.top  = ((-_tmp.y * 0.5 + 0.5) * ch) + 'px';
+      });
+      renderer.render(scene, camera);
+    })();
 
     new ResizeObserver(() => {
       const W2 = wrap.clientWidth, H2 = wrap.clientHeight;
@@ -2312,7 +2354,12 @@ log('OpenCV.js を読み込み中...', 'info');
       camera.updateProjectionMatrix();
     }).observe(wrap);
 
-    viewer = { camera, o, place, dg };
+    viewer = { camera, o, place, dg,
+      setAxisLen(len) {
+        axLen = len;
+        axArrows.forEach(a => a.setLength(len, len * 0.2, len * 0.12));
+      },
+    };
   }
 
   function fitView(data) {
@@ -2330,6 +2377,7 @@ log('OpenCV.js を読み込み中...', 'info');
     );
     o.r = span * 2.5;
     place();
+    viewer.setAxisLen(span * 0.18);
   }
 
   function buildScene(data, showArrows) {
