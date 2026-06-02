@@ -57,6 +57,7 @@
         <button class="tab-btn active" data-tab="control">操作</button>
         <button class="tab-btn" data-tab="result">結果</button>
         <button class="tab-btn" data-tab="history">履歴</button>
+        <button class="tab-btn" data-tab="blade-shape">刃先形状</button>
         <button class="tab-btn" data-tab="csv3d">3D表示</button>
       </div>
 
@@ -243,6 +244,39 @@
         </div>
 
       </div><!-- /#tab-history -->
+
+      <!-- 刃先形状タブ -->
+      <div id="tab-blade-shape" class="tab-panel hidden">
+        <div class="panel-box">
+          <h2>刃先形状</h2>
+
+          <div class="control-group">
+            <label>刃渡り（曲線長）</label>
+            <span id="bs-curve-length">--</span> mm
+            &nbsp;→&nbsp;
+            <span id="bs-layer-count">--</span> 段
+          </div>
+
+          <div class="control-group">
+            <label>z値 (mm)</label>
+            <input type="number" id="bs-z" value="20" min="0" step="1">
+          </div>
+          <div class="control-group">
+            <label>2点間距離 (mm)</label>
+            <input type="number" id="bs-x-dist" value="5" min="0.1" step="0.1">
+          </div>
+          <div class="control-group">
+            <label>yステップ (mm)</label>
+            <input type="number" id="bs-y-step" value="10" min="1" step="1">
+          </div>
+
+          <div class="btn-row">
+            <button id="bs-load-3d" class="btn btn-primary" disabled>3Dビューアで表示</button>
+          </div>
+
+          <p id="bs-preview" class="hint-text"></p>
+        </div>
+      </div><!-- /#tab-blade-shape -->
 
       <!-- 3D CSV ビューアタブ -->
       <div id="tab-csv3d" class="tab-panel hidden">

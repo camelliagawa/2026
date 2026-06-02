@@ -2570,5 +2570,92 @@ log('OpenCV.js を読み込み中...', 'info');
       });
     }
   });
+
+  // ---- 外部からデータを slot に差し込む公開インターフェース ----
+  window.csv3dLoadData = function (slotIndex, data, name) {
+    slots[slotIndex].data = data;
+    slots[slotIndex].name = name;
+    slots[slotIndex].visible = true;
+    updateSlotUI(slotIndex);
+    updateInfo();
+    const sa = arrowsChk ? arrowsChk.checked : true;
+    openViewer(() => { buildSlot(slotIndex, sa); fitAllData(); });
+  };
 })();
 
+// =====================================================================
+// 刃先形状タブ
+// =====================================================================
+(function () {
+  const elBsCurveLen = document.getElementById('bs-curve-length');
+  const elBsLayerCnt = document.getElementById('bs-layer-count');
+  const elBsZ        = document.getElementById('bs-z');
+  const elBsXDist    = document.getElementById('bs-x-dist');
+  const elBsYStep    = document.getElementById('bs-y-step');
+  const elBsLoad3d   = document.getElementById('bs-load-3d');
+  const elBsPreview  = document.getElementById('bs-preview');
+
+  function getBladeLengthMm() {
+    return calcCurveLengthMm(state.lastBladeCurvePts);
+  }
+
+  function refreshDisplay() {
+    const bladeMm = getBladeLengthMm();
+    const yStep   = Math.max(1, parseFloat(elBsYStep.value) || 10);
+
+    if (bladeMm === null) {
+      elBsCurveLen.textContent = '--';
+      elBsLayerCnt.textContent = '--';
+      elBsLoad3d.disabled = true;
+      elBsPreview.textContent = '先に刃渡りを計測してください。';
+      return;
+    }
+
+    const yMax   = Math.floor(bladeMm / yStep) * yStep;
+    const layers = Math.floor(bladeMm / yStep) + 1;
+    const pts    = layers * 2;
+
+    elBsCurveLen.textContent = bladeMm.toFixed(1);
+    elBsLayerCnt.textContent = layers;
+    elBsLoad3d.disabled = false;
+
+    const zVal  = parseFloat(elBsZ.value)     || 20;
+    const xDist = parseFloat(elBsXDist.value) || 5;
+    elBsPreview.textContent =
+      `y=0〜${yMax}mm（${layers}段） ×2点 → 合計${pts}行` +
+      `  /  z=${zVal}mm  x=±${(xDist / 2).toFixed(2)}mm`;
+  }
+
+  function computeBladeShapePoints() {
+    const bladeMm = getBladeLengthMm();
+    if (bladeMm === null) return null;
+
+    const zVal  = parseFloat(elBsZ.value)     || 20;
+    const xDist = parseFloat(elBsXDist.value) || 5;
+    const yStep = Math.max(1, parseFloat(elBsYStep.value) || 10);
+    const yMax  = Math.floor(bladeMm / yStep) * yStep;
+
+    const rows = [];
+    for (let y = 0; y <= yMax; y += yStep) {
+      rows.push({ x: -(xDist / 2), y, z: zVal, rx: 1, ry: 0, rz: 0 });
+      rows.push({ x:   xDist / 2,  y, z: zVal, rx: 1, ry: 0, rz: 0 });
+    }
+    return rows;
+  }
+
+  [elBsZ, elBsXDist, elBsYStep].forEach(el =>
+    el?.addEventListener('input', refreshDisplay)
+  );
+
+  elBsLoad3d?.addEventListener('click', () => {
+    const data = computeBladeShapePoints();
+    if (!data) return;
+    if (typeof window.csv3dLoadData === 'function') {
+      window.csv3dLoadData(0, data, '刃先形状');
+    }
+    document.querySelector('.tab-btn[data-tab="csv3d"]')?.click();
+  });
+
+  document.querySelector('.tab-btn[data-tab="blade-shape"]')
+    ?.addEventListener('click', refreshDisplay);
+})();
