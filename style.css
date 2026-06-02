@@ -1033,3 +1033,67 @@ details[open] .advanced-summary::before {
 
 /* Manual blade selection */
 #result-processed-canvas.manual-selecting { cursor: crosshair; }
+
+/* ======= 3D CSV Viewer ======= */
+#btn-show-3d { display: none; }
+
+#csv3d-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: #0d1b2e;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #1e3050;
+}
+
+#csv3d-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+  cursor: grab;
+  outline: none;
+}
+
+#csv3d-canvas:active { cursor: grabbing; }
+
+#csv3d-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #2a4060;
+  font-size: 0.88rem;
+  pointer-events: none;
+}
+
+.csv3d-info {
+  font-size: 0.78rem;
+  color: #7090a0;
+  padding: 2px 0;
+  font-family: 'Courier New', monospace;
+}
+
+.csv3d-opts {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+@media (min-width: 768px) {
+  #btn-show-3d {
+    display: block;
+    width: 100%;
+  }
+
+  #tab-csv3d {
+    grid-column: 1 / -1;
+  }
+
+  #csv3d-wrap {
+    max-width: 560px;
+  }
+}
