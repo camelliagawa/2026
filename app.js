@@ -2184,3 +2184,279 @@ window.addEventListener('resize', () => {
 log('アプリ起動完了。カメラ開始ボタンを押してください。', 'info');
 log('OpenCV.js を読み込み中...', 'info');
 
+// =====================================================================
+// 3D CSV ビューア（Three.js 動的ロード）
+// =====================================================================
+;(function () {
+  let viewer = null;
+  let csvData = null;
+  const arrowsChk = document.getElementById('csv3d-show-arrows');
+
+  // Three.js を必要になった時点で動的ロード
+  function loadThree(cb) {
+    if (typeof THREE !== 'undefined') { cb(); return; }
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
+    s.onload = cb;
+    s.onerror = () => log('Three.js の読み込みに失敗しました', 'warn');
+    document.head.appendChild(s);
+  }
+
+  function initViewer() {
+    if (viewer) return;
+    const wrap   = document.getElementById('csv3d-wrap');
+    const canvas = document.getElementById('csv3d-canvas');
+    if (!wrap || !canvas) return;
+
+    const W = Math.max(wrap.clientWidth,  10);
+    const H = Math.max(wrap.clientHeight, 10);
+
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setSize(W, H);
+    renderer.setClearColor(0x0d1b2e);
+
+    const scene = new THREE.Scene();
+    scene.add(new THREE.GridHelper(80, 40, 0x1e3050, 0x162440));
+    scene.add(new THREE.AxesHelper(2));
+
+    const camera = new THREE.PerspectiveCamera(45, W / H, 0.001, 2000);
+    const o = { theta: 0.4, phi: 1.0, r: 30, tx: 0, ty: 0, tz: 0 };
+
+    function place() {
+      camera.position.set(
+        o.tx + o.r * Math.sin(o.phi) * Math.sin(o.theta),
+        o.ty + o.r * Math.cos(o.phi),
+        o.tz + o.r * Math.sin(o.phi) * Math.cos(o.theta)
+      );
+      camera.lookAt(o.tx, o.ty, o.tz);
+    }
+    place();
+
+    // ---- マウス操作（回転・パン・ズーム）----
+    let md = null;
+    canvas.addEventListener('mousedown', e => {
+      md = { x: e.clientX, y: e.clientY, b: e.button };
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', e => {
+      if (!md) return;
+      const dx = e.clientX - md.x, dy = e.clientY - md.y;
+      md.x = e.clientX; md.y = e.clientY;
+      if (md.b === 0) {
+        // 左ドラッグ: 回転
+        o.theta -= dx * 0.008;
+        o.phi = Math.max(0.05, Math.min(Math.PI - 0.05, o.phi + dy * 0.008));
+      } else {
+        // 右ドラッグ: パン
+        const s = o.r * 0.002;
+        o.tx += dx * s * Math.cos(o.theta);
+        o.tz -= dx * s * Math.sin(o.theta);
+        o.ty -= dy * s;
+      }
+      place();
+    });
+    document.addEventListener('mouseup', () => { md = null; });
+    canvas.addEventListener('contextmenu', e => e.preventDefault());
+    canvas.addEventListener('wheel', e => {
+      e.preventDefault();
+      o.r = Math.max(0.2, o.r * (1 + e.deltaY * 0.001));
+      place();
+    }, { passive: false });
+
+    // ---- タッチ操作（回転・ピンチズーム）----
+    let td = null, p0 = null;
+    canvas.addEventListener('touchstart', e => {
+      e.preventDefault();
+      if (e.touches.length === 1) {
+        td = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        p0 = null;
+      } else if (e.touches.length === 2) {
+        td = null;
+        p0 = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+      }
+    }, { passive: false });
+    canvas.addEventListener('touchmove', e => {
+      e.preventDefault();
+      if (e.touches.length === 1 && td) {
+        const dx = e.touches[0].clientX - td.x, dy = e.touches[0].clientY - td.y;
+        td = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        o.theta -= dx * 0.01;
+        o.phi = Math.max(0.05, Math.min(Math.PI - 0.05, o.phi + dy * 0.01));
+        place();
+      } else if (e.touches.length === 2 && p0 != null) {
+        const d = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+        o.r = Math.max(0.2, o.r * p0 / d);
+        p0 = d;
+        place();
+      }
+    }, { passive: false });
+    canvas.addEventListener('touchend', () => { td = null; p0 = null; });
+
+    const dg = new THREE.Group();
+    scene.add(dg);
+
+    (function render() { requestAnimationFrame(render); renderer.render(scene, camera); })();
+
+    new ResizeObserver(() => {
+      const W2 = wrap.clientWidth, H2 = wrap.clientHeight;
+      if (!W2 || !H2) return;
+      renderer.setSize(W2, H2);
+      camera.aspect = W2 / H2;
+      camera.updateProjectionMatrix();
+    }).observe(wrap);
+
+    viewer = { camera, o, place, dg };
+  }
+
+  function fitView(data) {
+    if (!viewer || !data || !data.length) return;
+    const xs = data.map(d => d.x), ys = data.map(d => d.y), zs = data.map(d => d.z);
+    const { o, place } = viewer;
+    o.tx = (Math.min(...xs) + Math.max(...xs)) / 2;
+    o.ty = (Math.min(...ys) + Math.max(...ys)) / 2;
+    o.tz = (Math.min(...zs) + Math.max(...zs)) / 2;
+    const span = Math.max(
+      Math.max(...xs) - Math.min(...xs),
+      Math.max(...ys) - Math.min(...ys),
+      Math.max(...zs) - Math.min(...zs),
+      0.5
+    );
+    o.r = span * 2.5;
+    place();
+  }
+
+  function buildScene(data, showArrows) {
+    if (!viewer || !data || data.length < 2) return;
+    const { dg } = viewer;
+
+    // 既存のデータオブジェクトをクリア
+    while (dg.children.length) {
+      const c = dg.children[0];
+      c.geometry && c.geometry.dispose();
+      c.material  && c.material.dispose();
+      dg.remove(c);
+    }
+
+    // ---- パスライン（シアン）----
+    dg.add(new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(data.map(d => new THREE.Vector3(d.x, d.y, d.z))),
+      new THREE.LineBasicMaterial({ color: 0x00e5ff })
+    ));
+
+    // ---- 頂点ドット（赤）----
+    const posArr = new Float32Array(data.length * 3);
+    data.forEach((d, i) => { posArr[i*3] = d.x; posArr[i*3+1] = d.y; posArr[i*3+2] = d.z; });
+    const ptGeo = new THREE.BufferGeometry();
+    ptGeo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+    dg.add(new THREE.Points(ptGeo, new THREE.PointsMaterial({ color: 0xff4455, size: 0.3 })));
+
+    // ---- 向き矢印（緑）----
+    if (showArrows) {
+      let totalLen = 0;
+      for (let i = 1; i < data.length; i++) {
+        totalLen += Math.hypot(
+          data[i].x - data[i-1].x,
+          data[i].y - data[i-1].y,
+          data[i].z - data[i-1].z
+        );
+      }
+      const al = (totalLen / (data.length - 1)) * 0.65;
+      const arrArr = new Float32Array(data.length * 6);
+      data.forEach((d, i) => {
+        arrArr[i*6]   = d.x;          arrArr[i*6+1] = d.y;          arrArr[i*6+2] = d.z;
+        arrArr[i*6+3] = d.x + d.rx*al; arrArr[i*6+4] = d.y + d.ry*al; arrArr[i*6+5] = d.z + d.rz*al;
+      });
+      const arrGeo = new THREE.BufferGeometry();
+      arrGeo.setAttribute('position', new THREE.BufferAttribute(arrArr, 3));
+      dg.add(new THREE.LineSegments(arrGeo, new THREE.LineBasicMaterial({ color: 0x44ff88 })));
+    }
+  }
+
+  function parseCsv(text) {
+    const rows = [];
+    for (const line of text.split('\n')) {
+      const t = line.trim();
+      if (!t || t.startsWith('#')) continue;
+      const cols = t.split(/[\s,;]+/);
+      if (cols.length < 6) continue;
+      const n = cols.slice(0, 6).map(Number);
+      if (n.some(isNaN)) continue;
+      rows.push({ x: n[0], y: n[1], z: n[2], rx: n[3], ry: n[4], rz: n[5] });
+    }
+    return rows;
+  }
+
+  function applyData(data) {
+    const showArrows = arrowsChk ? arrowsChk.checked : true;
+    buildScene(data, showArrows);
+    fitView(data);
+    const xs = data.map(d => d.x), ys = data.map(d => d.y), zs = data.map(d => d.z);
+    const fmt = a => `${Math.min(...a).toFixed(2)}〜${Math.max(...a).toFixed(2)}`;
+    const info = document.getElementById('csv3d-info');
+    if (info) {
+      info.textContent = `${data.length}点  x: ${fmt(xs)}  y: ${fmt(ys)}  z: ${fmt(zs)} mm`;
+      info.classList.remove('hidden');
+    }
+    const empty = document.getElementById('csv3d-empty');
+    if (empty) empty.style.display = 'none';
+    log(`3D CSV: ${data.length}点 読み込み完了`, 'info');
+  }
+
+  function openViewer(cb) {
+    loadThree(() => { initViewer(); cb && cb(); });
+  }
+
+  // ---- ファイル入力 ----
+  document.getElementById('csv3d-input')?.addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const data = parseCsv(ev.target.result);
+      if (!data.length) {
+        log('CSVを解析できません（x y z rx ry rz の6列が必要）', 'warn');
+        return;
+      }
+      csvData = data;
+      openViewer(() => applyData(data));
+    };
+    reader.readAsText(file);
+  });
+
+  // ---- 向き矢印トグル ----
+  arrowsChk?.addEventListener('change', () => {
+    if (csvData && viewer) buildScene(csvData, arrowsChk.checked);
+  });
+
+  // ---- 視点リセット ----
+  document.getElementById('csv3d-reset-view')?.addEventListener('click', () => {
+    fitView(csvData);
+  });
+
+  // ---- モバイル: タブクリックで遅延初期化 ----
+  document.querySelector('.tab-btn[data-tab="csv3d"]')?.addEventListener('click', () => {
+    openViewer(() => {
+      if (csvData) setTimeout(() => applyData(csvData), 40);
+    });
+  });
+
+  // ---- デスクトップ: トグルボタン ----
+  document.getElementById('btn-show-3d')?.addEventListener('click', () => {
+    const panel = document.getElementById('tab-csv3d');
+    if (!panel) return;
+    const isNowHidden = panel.classList.toggle('hidden');
+    if (!isNowHidden) {
+      openViewer(() => {
+        if (csvData) setTimeout(() => applyData(csvData), 40);
+      });
+    }
+  });
+})();
+
