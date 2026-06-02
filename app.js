@@ -2719,19 +2719,21 @@ log('OpenCV.js を読み込み中...', 'info');
     ctx.lineTo(mg.left + pw, mg.top + ph);
     ctx.stroke();
 
-    // 断面ライン（2点を結ぶ）
+    // 三角形（左点 → 原点 → 右点 → 閉じる）
     ctx.strokeStyle = '#00e5ff';
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(cx(-xHalf), cz(zVal));
+    ctx.lineTo(cx(0),       cz(0));
     ctx.lineTo(cx( xHalf), cz(zVal));
+    ctx.closePath();
     ctx.stroke();
 
-    // 点
+    // 点（3つ）
     ctx.fillStyle = '#ff4455';
-    for (const px of [-xHalf, xHalf]) {
+    for (const [px, pz] of [[-xHalf, zVal], [0, 0], [xHalf, zVal]]) {
       ctx.beginPath();
-      ctx.arc(cx(px), cz(zVal), 4, 0, Math.PI * 2);
+      ctx.arc(cx(px), cz(pz), 4, 0, Math.PI * 2);
       ctx.fill();
     }
 
