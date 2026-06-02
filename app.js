@@ -2188,11 +2188,18 @@ log('OpenCV.js を読み込み中...', 'info');
 // 3D CSV ビューア（Three.js 動的ロード）
 // =====================================================================
 ;(function () {
+  // ---- スロット別カラー定義（slot 0: シアン系 / slot 1: オレンジ系）----
+  const COLORS = [
+    { line: 0x00e5ff, dot: 0xff4455, arrow: 0x44ff88 },
+    { line: 0xff8822, dot: 0xffdd00, arrow: 0xff66cc },
+  ];
+  const slots = [
+    { data: null, name: '', visible: true },
+    { data: null, name: '', visible: true },
+  ];
   let viewer = null;
-  let csvData = null;
   const arrowsChk = document.getElementById('csv3d-show-arrows');
 
-  // Three.js を必要になった時点で動的ロード
   function loadThree(cb) {
     if (typeof THREE !== 'undefined') { cb(); return; }
     const s = document.createElement('script');
@@ -2326,8 +2333,9 @@ log('OpenCV.js を読み込み中...', 'info');
     }, { passive: false });
     canvas.addEventListener('touchend', () => { td = null; p0 = null; });
 
-    const dg = new THREE.Group();
-    scene.add(dg);
+    // ---- スロット別データグループ（2つ）----
+    const slotGroups = [new THREE.Group(), new THREE.Group()];
+    slotGroups.forEach(g => scene.add(g));
 
     (function render() {
       requestAnimationFrame(render);
@@ -2354,7 +2362,7 @@ log('OpenCV.js を読み込み中...', 'info');
       camera.updateProjectionMatrix();
     }).observe(wrap);
 
-    viewer = { camera, o, place, dg,
+    viewer = { camera, o, place, slotGroups,
       setAxisLen(len) {
         axLen = len;
         axArrows.forEach(a => a.setLength(len, len * 0.2, len * 0.12));
@@ -2380,51 +2388,64 @@ log('OpenCV.js を読み込み中...', 'info');
     viewer.setAxisLen(span * 0.18);
   }
 
-  function buildScene(data, showArrows) {
-    if (!viewer || !data || data.length < 2) return;
-    const { dg } = viewer;
+  function fitAllData() {
+    const all = slots.flatMap(s => s.data || []);
+    if (all.length) fitView(all);
+  }
 
-    // 既存のデータオブジェクトをクリア
-    while (dg.children.length) {
-      const c = dg.children[0];
+  function buildSlot(i, showArrows) {
+    if (!viewer) return;
+    const group = viewer.slotGroups[i];
+    const slot  = slots[i];
+    const col   = COLORS[i];
+
+    // グループをクリア
+    while (group.children.length) {
+      const c = group.children[0];
       c.geometry && c.geometry.dispose();
       c.material  && c.material.dispose();
-      dg.remove(c);
+      group.remove(c);
     }
 
-    // ---- パスライン（シアン）----
-    dg.add(new THREE.Line(
+    group.visible = slot.visible;
+    if (!slot.data || slot.data.length < 2) return;
+    const data = slot.data;
+
+    // パスライン
+    group.add(new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(data.map(d => new THREE.Vector3(d.x, d.y, d.z))),
-      new THREE.LineBasicMaterial({ color: 0x00e5ff })
+      new THREE.LineBasicMaterial({ color: col.line })
     ));
 
-    // ---- 頂点ドット（赤）----
-    const posArr = new Float32Array(data.length * 3);
-    data.forEach((d, i) => { posArr[i*3] = d.x; posArr[i*3+1] = d.y; posArr[i*3+2] = d.z; });
-    const ptGeo = new THREE.BufferGeometry();
-    ptGeo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
-    dg.add(new THREE.Points(ptGeo, new THREE.PointsMaterial({ color: 0xff4455, size: 0.3 })));
+    // 頂点ドット
+    const pa = new Float32Array(data.length * 3);
+    data.forEach((d, j) => { pa[j*3]=d.x; pa[j*3+1]=d.y; pa[j*3+2]=d.z; });
+    const pg = new THREE.BufferGeometry();
+    pg.setAttribute('position', new THREE.BufferAttribute(pa, 3));
+    group.add(new THREE.Points(pg, new THREE.PointsMaterial({ color: col.dot, size: 0.3 })));
 
-    // ---- 向き矢印（緑）----
-    if (showArrows) {
+    // 向き矢印
+    if (showArrows && data.length > 1) {
       let totalLen = 0;
-      for (let i = 1; i < data.length; i++) {
-        totalLen += Math.hypot(
-          data[i].x - data[i-1].x,
-          data[i].y - data[i-1].y,
-          data[i].z - data[i-1].z
-        );
+      for (let k = 1; k < data.length; k++) {
+        totalLen += Math.hypot(data[k].x-data[k-1].x, data[k].y-data[k-1].y, data[k].z-data[k-1].z);
       }
       const al = (totalLen / (data.length - 1)) * 0.65;
-      const arrArr = new Float32Array(data.length * 6);
-      data.forEach((d, i) => {
-        arrArr[i*6]   = d.x;          arrArr[i*6+1] = d.y;          arrArr[i*6+2] = d.z;
-        arrArr[i*6+3] = d.x + d.rx*al; arrArr[i*6+4] = d.y + d.ry*al; arrArr[i*6+5] = d.z + d.rz*al;
+      const aa = new Float32Array(data.length * 6);
+      data.forEach((d, j) => {
+        aa[j*6]=d.x;          aa[j*6+1]=d.y;          aa[j*6+2]=d.z;
+        aa[j*6+3]=d.x+d.rx*al; aa[j*6+4]=d.y+d.ry*al; aa[j*6+5]=d.z+d.rz*al;
       });
-      const arrGeo = new THREE.BufferGeometry();
-      arrGeo.setAttribute('position', new THREE.BufferAttribute(arrArr, 3));
-      dg.add(new THREE.LineSegments(arrGeo, new THREE.LineBasicMaterial({ color: 0x44ff88 })));
+      const ag = new THREE.BufferGeometry();
+      ag.setAttribute('position', new THREE.BufferAttribute(aa, 3));
+      group.add(new THREE.LineSegments(ag, new THREE.LineBasicMaterial({ color: col.arrow })));
     }
+  }
+
+  function rebuildAll() {
+    const sa = arrowsChk ? arrowsChk.checked : true;
+    buildSlot(0, sa);
+    buildSlot(1, sa);
   }
 
   function parseCsv(text) {
@@ -2441,57 +2462,107 @@ log('OpenCV.js を読み込み中...', 'info');
     return rows;
   }
 
-  function applyData(data) {
-    const showArrows = arrowsChk ? arrowsChk.checked : true;
-    buildScene(data, showArrows);
-    fitView(data);
-    const xs = data.map(d => d.x), ys = data.map(d => d.y), zs = data.map(d => d.z);
-    const fmt = a => `${Math.min(...a).toFixed(2)}〜${Math.max(...a).toFixed(2)}`;
-    const info = document.getElementById('csv3d-info');
-    if (info) {
-      info.textContent = `${data.length}点  x: ${fmt(xs)}  y: ${fmt(ys)}  z: ${fmt(zs)} mm`;
-      info.classList.remove('hidden');
+  function updateSlotUI(i) {
+    const el = document.getElementById(`csv3d-slot-${i}`);
+    if (!el) return;
+    const slot    = slots[i];
+    const loadLbl = el.querySelector('.csv3d-load-lbl');
+    const fname   = el.querySelector('.csv3d-fname');
+    const visLbl  = el.querySelector('.csv3d-vis-lbl');
+    const visChk  = el.querySelector('.csv3d-vis');
+    const rmBtn   = el.querySelector('.csv3d-rm');
+    if (slot.data) {
+      loadLbl.classList.add('hidden');
+      fname.textContent = slot.name;
+      fname.classList.remove('hidden');
+      visLbl.classList.remove('hidden');
+      if (visChk) visChk.checked = slot.visible;
+      rmBtn.classList.remove('hidden');
+    } else {
+      loadLbl.classList.remove('hidden');
+      fname.classList.add('hidden');
+      visLbl.classList.add('hidden');
+      rmBtn.classList.add('hidden');
     }
+  }
+
+  function updateInfo() {
+    const info  = document.getElementById('csv3d-info');
     const empty = document.getElementById('csv3d-empty');
-    if (empty) empty.style.display = 'none';
-    log(`3D CSV: ${data.length}点 読み込み完了`, 'info');
+    const hasAny = slots.some(s => s.data);
+    if (empty) empty.style.display = hasAny ? 'none' : '';
+    if (!info) return;
+    const parts = slots.map((s, i) => s.data ? `CSV${i+1}: ${s.data.length}点` : null).filter(Boolean);
+    if (parts.length) { info.textContent = parts.join('　'); info.classList.remove('hidden'); }
+    else              { info.classList.add('hidden'); }
   }
 
   function openViewer(cb) {
     loadThree(() => { initViewer(); cb && cb(); });
   }
 
-  // ---- ファイル入力 ----
-  document.getElementById('csv3d-input')?.addEventListener('change', e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = ev => {
-      const data = parseCsv(ev.target.result);
-      if (!data.length) {
-        log('CSVを解析できません（x y z rx ry rz の6列が必要）', 'warn');
-        return;
-      }
-      csvData = data;
-      openViewer(() => applyData(data));
-    };
-    reader.readAsText(file);
+  // ---- ファイル入力（2スロット共通）----
+  document.querySelectorAll('#tab-csv3d input[type=file]').forEach(inp => {
+    inp.addEventListener('change', e => {
+      const i = +e.target.dataset.slot;
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const data = parseCsv(ev.target.result);
+        if (!data.length) { log('CSVを解析できません（x y z rx ry rz の6列が必要）', 'warn'); return; }
+        slots[i].data = data;
+        slots[i].name = file.name;
+        slots[i].visible = true;
+        updateSlotUI(i);
+        updateInfo();
+        const sa = arrowsChk ? arrowsChk.checked : true;
+        openViewer(() => { buildSlot(i, sa); fitAllData(); });
+        log(`CSV${i+1}: ${data.length}点 読み込み完了`, 'info');
+      };
+      reader.readAsText(file);
+    });
+  });
+
+  // ---- 表示/非表示トグル ----
+  document.querySelectorAll('#tab-csv3d .csv3d-vis').forEach(chk => {
+    chk.addEventListener('change', () => {
+      const i = +chk.dataset.slot;
+      slots[i].visible = chk.checked;
+      if (viewer) viewer.slotGroups[i].visible = chk.checked;
+    });
+  });
+
+  // ---- 取り消し（データ削除）----
+  document.querySelectorAll('#tab-csv3d .csv3d-rm').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const i = +btn.dataset.slot;
+      slots[i].data = null;
+      slots[i].name = '';
+      slots[i].visible = true;
+      const fi = document.querySelector(`#csv3d-slot-${i} input[type=file]`);
+      if (fi) fi.value = '';
+      updateSlotUI(i);
+      updateInfo();
+      if (viewer) { buildSlot(i, false); fitAllData(); }
+      log(`CSV${i+1} を削除しました`, 'info');
+    });
   });
 
   // ---- 向き矢印トグル ----
   arrowsChk?.addEventListener('change', () => {
-    if (csvData && viewer) buildScene(csvData, arrowsChk.checked);
+    if (viewer) rebuildAll();
   });
 
   // ---- 視点リセット ----
   document.getElementById('csv3d-reset-view')?.addEventListener('click', () => {
-    fitView(csvData);
+    fitAllData();
   });
 
   // ---- モバイル: タブクリックで遅延初期化 ----
   document.querySelector('.tab-btn[data-tab="csv3d"]')?.addEventListener('click', () => {
     openViewer(() => {
-      if (csvData) setTimeout(() => applyData(csvData), 40);
+      if (slots.some(s => s.data)) setTimeout(() => { rebuildAll(); fitAllData(); }, 40);
     });
   });
 
@@ -2502,7 +2573,7 @@ log('OpenCV.js を読み込み中...', 'info');
     const isNowHidden = panel.classList.toggle('hidden');
     if (!isNowHidden) {
       openViewer(() => {
-        if (csvData) setTimeout(() => applyData(csvData), 40);
+        if (slots.some(s => s.data)) setTimeout(() => { rebuildAll(); fitAllData(); }, 40);
       });
     }
   });

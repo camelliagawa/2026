@@ -248,10 +248,22 @@
       <div id="tab-csv3d" class="tab-panel hidden">
         <div class="panel-box">
           <h2>3D CSVビューア</h2>
-          <label class="btn btn-secondary btn-file">
-            📂 CSVを選択（x, y, z, rx, ry, rz）
-            <input type="file" id="csv3d-input" accept=".csv,.txt">
-          </label>
+          <div class="csv3d-slots">
+            <div id="csv3d-slot-0" class="csv3d-slot">
+              <div class="csv3d-sbar" style="background:#00e5ff"></div>
+              <label class="csv3d-load-lbl btn btn-secondary btn-file btn-sm">📂 CSV 1 を選択<input type="file" data-slot="0" accept=".csv,.txt"></label>
+              <span class="csv3d-fname hidden"></span>
+              <label class="csv3d-vis-lbl hidden check-label"><input type="checkbox" class="csv3d-vis" data-slot="0" checked><span>表示</span></label>
+              <button class="csv3d-rm btn btn-danger btn-sm hidden" data-slot="0">✕</button>
+            </div>
+            <div id="csv3d-slot-1" class="csv3d-slot">
+              <div class="csv3d-sbar" style="background:#ff8822"></div>
+              <label class="csv3d-load-lbl btn btn-secondary btn-file btn-sm">📂 CSV 2 を選択<input type="file" data-slot="1" accept=".csv,.txt"></label>
+              <span class="csv3d-fname hidden"></span>
+              <label class="csv3d-vis-lbl hidden check-label"><input type="checkbox" class="csv3d-vis" data-slot="1" checked><span>表示</span></label>
+              <button class="csv3d-rm btn btn-danger btn-sm hidden" data-slot="1">✕</button>
+            </div>
+          </div>
           <p id="csv3d-info" class="csv3d-info hidden"></p>
           <div id="csv3d-wrap">
             <canvas id="csv3d-canvas"></canvas>
