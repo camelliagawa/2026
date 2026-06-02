@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D座標ビューワー</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #111; color: #eee; font-family: sans-serif; overflow: hidden; }
+
+    #ui {
+      position: fixed; top: 0; left: 0; z-index: 10;
+      background: rgba(0,0,0,0.75);
+      padding: 12px 16px;
+      max-width: 320px;
+      border-bottom-right-radius: 10px;
+    }
+    #ui h1 { font-size: 14px; margin-bottom: 8px; color: #7cf; }
+
+    .file-btn {
+      display: inline-block; cursor: pointer;
+      background: #2a6; color: #fff;
+      padding: 6px 14px; border-radius: 5px;
+      font-size: 13px; border: none;
+    }
+    .file-btn:hover { background: #3b7; }
+    #file-input { display: none; }
+
+    #info {
+      margin-top: 8px; font-size: 12px; color: #aaa; line-height: 1.6;
+    }
+    #stats { margin-top: 6px; font-size: 11px; color: #7af; }
+
+    .sep { border: none; border-top: 1px solid #333; margin: 8px 0; }
+
+    .ctrl-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 12px; }
+    .ctrl-row label { flex: 1; }
+    .ctrl-row input[type=range] { flex: 2; }
+    .ctrl-row input[type=checkbox] { width: 14px; height: 14px; }
+
+    #legend {
+      margin-top: 8px; font-size: 11px; display: flex; flex-direction: column; gap: 3px;
+    }
+    .leg-row { display: flex; align-items: center; gap: 6px; }
+    .leg-dot { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+
+    #canvas3d { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
+
+    #hint {
+      position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%);
+      font-size: 11px; color: #555; pointer-events: none;
+    }
+    #drop-overlay {
+      display: none; position: fixed; inset: 0; z-index: 20;
+      background: rgba(0,150,255,0.25);
+      border: 4px dashed #7cf;
+      pointer-events: none;
+    }
+    #drop-overlay.active { display: flex; align-items: center; justify-content: center; }
+    #drop-overlay span { font-size: 24px; color: #7cf; }
+  </style>
+</head>
+<body>
+
+<canvas id="canvas3d"></canvas>
+
+<div id="ui">
+  <h1>3D座標ビューワー</h1>
+  <label class="file-btn">
+    📂 CSVを開く
+    <input type="file" id="file-input" accept=".csv,.txt">
+  </label>
+
+  <div id="info">ドラッグ&ドロップまたはファイルを選択<br>列順: x, y, z, rx, ry, rz</div>
+  <div id="stats"></div>
+
+  <hr class="sep">
+
+  <div class="ctrl-row">
+    <label>矢印表示</label>
+    <input type="checkbox" id="chk-arrows" checked>
+  </div>
+  <div class="ctrl-row">
+    <label>点サイズ</label>
+    <input type="range" id="rng-ptsize" min="1" max="10" value="3" step="1">
+  </div>
+  <div class="ctrl-row">
+    <label>矢印長さ</label>
+    <input type="range" id="rng-arrlen" min="1" max="20" value="5" step="1">
+  </div>
+  <div class="ctrl-row">
+    <label>軸グリッド</label>
+    <input type="checkbox" id="chk-grid" checked>
+  </div>
+
+  <hr class="sep">
+  <div id="legend">
+    <div class="leg-row"><div class="leg-dot" style="background:#ff4444"></div> X軸（赤）</div>
+    <div class="leg-row"><div class="leg-dot" style="background:#44ff44"></div> Y軸（緑）</div>
+    <div class="leg-row"><div class="leg-dot" style="background:#4488ff"></div> Z軸（青）</div>
+    <div class="leg-row"><div class="leg-dot" style="background:#ff8800; border-radius:50%"></div> 経路点</div>
+    <div class="leg-row"><div class="leg-dot" style="background:#ff88ff"></div> 法線矢印</div>
+  </div>
+</div>
+
+<div id="hint">ドラッグ: 回転 ／ ホイール: ズーム ／ 右ドラッグ: 平行移動</div>
+<div id="drop-overlay"><span>ここにCSVをドロップ</span></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ── シーン初期化 ──────────────────────────────────────────
+const canvas = document.getElementById('canvas3d');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(devicePixelRatio);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x111111);
+
+const camera = new THREE.PerspectiveCamera(50, 1, 0.001, 10000);
+camera.position.set(10, 20, 30);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+// 軸ヘルパー
+const axesHelper = new THREE.AxesHelper(5);
+scene.add(axesHelper);
+
+// グリッドヘルパー（XZ平面）
+const gridHelper = new THREE.GridHelper(100, 20, 0x333333, 0x222222);
+scene.add(gridHelper);
+
+// ── 状態 ─────────────────────────────────────────────────
+let pathGroup = null;
+let arrowGroup = null;
+let pointCloud = null;
+let currentData = [];
+
+const ui = {
+  arrows: document.getElementById('chk-arrows'),
+  ptsize: document.getElementById('rng-ptsize'),
+  arrlen: document.getElementById('rng-arrlen'),
+  grid:   document.getElementById('chk-grid'),
+  stats:  document.getElementById('stats'),
+  info:   document.getElementById('info'),
+};
+
+// ── CSV パース ────────────────────────────────────────────
+function parseCSV(text) {
+  const rows = text.trim().split(/\r?\n/).filter(l => l.trim());
+  const data = [];
+  for (const row of rows) {
+    const cols = row.split(',').map(s => s.trim());
+    if (cols.length < 3) continue;
+    const nums = cols.map(Number);
+    if (nums.slice(0, 3).some(isNaN)) continue; // ヘッダ行をスキップ
+    data.push({
+      x: nums[0], y: nums[1], z: nums[2],
+      rx: nums[3] ?? 0, ry: nums[4] ?? 0, rz: nums[5] ?? 0,
+    });
+  }
+  return data;
+}
+
+// ── 描画 ──────────────────────────────────────────────────
+function buildScene(data) {
+  // 既存オブジェクトを削除
+  [pathGroup, arrowGroup, pointCloud].forEach(g => g && scene.remove(g));
+
+  if (!data.length) return;
+
+  const arrLen = +ui.arrlen.value * 0.1;
+  const ptSize = +ui.ptsize.value * 0.05;
+
+  // 経路ライン
+  pathGroup = new THREE.Group();
+  const positions = [];
+  data.forEach(p => positions.push(p.x, p.z, -p.y)); // Three.js: Y上=Z奥
+  const lineGeo = new THREE.BufferGeometry();
+  lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  const lineMat = new THREE.LineBasicMaterial({ color: 0xff8800, linewidth: 1 });
+  pathGroup.add(new THREE.Line(lineGeo, lineMat));
+
+  // 点群
+  const ptGeo = new THREE.BufferGeometry();
+  ptGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  const ptMat = new THREE.PointsMaterial({ color: 0xff8800, size: ptSize, sizeAttenuation: true });
+  pointCloud = new THREE.Points(ptGeo, ptMat);
+  pathGroup.add(pointCloud);
+
+  scene.add(pathGroup);
+
+  // 法線矢印グループ
+  arrowGroup = new THREE.Group();
+  const arrowMat = new THREE.MeshBasicMaterial({ color: 0xff88ff, transparent: true, opacity: 0.7 });
+
+  // 全点の1/5だけ矢印を描画（多すぎると重い）
+  const step = Math.max(1, Math.floor(data.length / 200));
+  data.forEach((p, i) => {
+    if (i % step !== 0) return;
+    const dir = new THREE.Vector3(p.rx, p.rz, -p.ry).normalize();
+    if (dir.lengthSq() < 0.001) return;
+    const origin = new THREE.Vector3(p.x, p.z, -p.y);
+    const arrow = new THREE.ArrowHelper(dir, origin, arrLen, 0xff88ff, arrLen * 0.3, arrLen * 0.15);
+    arrowGroup.add(arrow);
+  });
+  arrowGroup.visible = ui.arrows.checked;
+  scene.add(arrowGroup);
+
+  // カメラを経路にフィット
+  const box = new THREE.Box3().setFromPoints(
+    data.map(p => new THREE.Vector3(p.x, p.z, -p.y))
+  );
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+  const size = box.getSize(new THREE.Vector3()).length();
+  controls.target.copy(center);
+  camera.position.copy(center).add(new THREE.Vector3(size, size * 0.7, size));
+  controls.update();
+
+  // 統計
+  ui.stats.textContent = `${data.length} 点 | x:[${rng(data,'x')}] y:[${rng(data,'y')}] z:[${rng(data,'z')}]`;
+}
+
+function rng(data, key) {
+  const vals = data.map(p => p[key]);
+  return `${Math.min(...vals).toFixed(2)}, ${Math.max(...vals).toFixed(2)}`;
+}
+
+// ── ファイル読み込み ──────────────────────────────────────
+function loadText(text) {
+  const data = parseCSV(text);
+  if (!data.length) {
+    ui.info.textContent = '⚠ 数値データが見つかりません（列: x,y,z,rx,ry,rz）';
+    return;
+  }
+  ui.info.textContent = `読み込み完了`;
+  currentData = data;
+  buildScene(data);
+}
+
+document.getElementById('file-input').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  e.target.value = '';
+  const reader = new FileReader();
+  reader.onload = ev => loadText(ev.target.result);
+  reader.readAsText(file, 'utf-8');
+});
+
+// ── ドラッグ&ドロップ ─────────────────────────────────────
+const overlay = document.getElementById('drop-overlay');
+let dragCnt = 0;
+document.addEventListener('dragenter', e => { e.preventDefault(); dragCnt++; overlay.classList.add('active'); });
+document.addEventListener('dragover',  e => e.preventDefault());
+document.addEventListener('dragleave', () => { if (--dragCnt <= 0) { dragCnt = 0; overlay.classList.remove('active'); } });
+document.addEventListener('drop', e => {
+  e.preventDefault(); dragCnt = 0; overlay.classList.remove('active');
+  const file = e.dataTransfer.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => loadText(ev.target.result);
+  reader.readAsText(file, 'utf-8');
+});
+
+// ── UIコントロール ────────────────────────────────────────
+ui.arrows.addEventListener('change', () => { if (arrowGroup) arrowGroup.visible = ui.arrows.checked; });
+ui.grid.addEventListener('change',   () => { gridHelper.visible = ui.grid.checked; });
+ui.ptsize.addEventListener('input',  () => { if (pointCloud) pointCloud.material.size = +ui.ptsize.value * 0.05; });
+ui.arrlen.addEventListener('change', () => {
+  if (currentData.length) buildScene(currentData);
+});
+
+// ── リサイズ ──────────────────────────────────────────────
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ── アニメーションループ ──────────────────────────────────
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+</script>
+</body>
+</html>
