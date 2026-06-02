@@ -1888,17 +1888,17 @@ function computeBlade6ColData(pts, intervalMm, xConst) {
   if (sampled.length < 2) return [];
   return sampled.map((p, i) => {
     const y = p.xMm;
-    const z = p.yMm;
+    const z = -p.yMm;
     let dy, dz;
     if (i === 0) {
       dy = sampled[1].xMm - sampled[0].xMm;
-      dz = sampled[1].yMm - sampled[0].yMm;
+      dz = -(sampled[1].yMm - sampled[0].yMm);
     } else if (i === sampled.length - 1) {
       dy = sampled[i].xMm - sampled[i - 1].xMm;
-      dz = sampled[i].yMm - sampled[i - 1].yMm;
+      dz = -(sampled[i].yMm - sampled[i - 1].yMm);
     } else {
       dy = sampled[i + 1].xMm - sampled[i - 1].xMm;
-      dz = sampled[i + 1].yMm - sampled[i - 1].yMm;
+      dz = -(sampled[i + 1].yMm - sampled[i - 1].yMm);
     }
     const ds = Math.sqrt(dy * dy + dz * dz);
     const ry = ds > 0 ? dy / ds : 1;
