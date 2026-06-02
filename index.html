@@ -251,6 +251,15 @@
           <h2>刃先形状</h2>
 
           <div class="control-group">
+            <label>刃渡り曲線CSV</label>
+            <div class="btn-row">
+              <label id="bs-csv-load-lbl" class="btn btn-secondary btn-file btn-sm">📂 CSVを読み込む<input type="file" id="bs-csv-input" accept=".csv,.txt"></label>
+              <span id="bs-csv-fname" class="csv3d-fname hidden"></span>
+              <button id="bs-csv-rm" class="btn btn-danger btn-sm hidden">✕</button>
+            </div>
+          </div>
+
+          <div class="control-group">
             <label>刃渡り（曲線長）</label>
             <span id="bs-curve-length">--</span> mm
             &nbsp;→&nbsp;
