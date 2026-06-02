@@ -416,10 +416,6 @@ elems.showContours.addEventListener('change', () => {
 
 
 // =====================================================================
-// キャンバス座標変換（マウス・タッチ共通）
-// =====================================================================
-
-// =====================================================================
 // 撮影画像の一括解析（自動校正 + 刃渡り計測）
 // =====================================================================
 function analyzeImage(canvas) {
@@ -1091,14 +1087,11 @@ function updateResults({ status, bladeOnlyPx, bladeOnlyMm, totalLengthPx, totalL
   elems.resAngle.textContent = angle !== undefined ? angle.toFixed(1) : '--';
 }
 
-
-
 // =====================================================================
 // 検出確認ダイアログ
 // =====================================================================
 function showDetectionConfirm(result) {
   state.pendingResult = result;
-  elems.confirmSummary.textContent = '';
   elems.detectionConfirm.classList.remove('hidden');
 }
 
@@ -1120,7 +1113,7 @@ elems.btnConfirmRetry.addEventListener('click', () => {
   hideDetectionConfirm();
   elems.resultImageBox.classList.add('hidden');
   if (elems.resultProcessedImageBox) elems.resultProcessedImageBox.classList.add('hidden');
-  updateStatus('待機中');
+  elems.resStatus.textContent = '待機中';
   elems.resBladeLength.textContent = '--';
   elems.unitBladeLength.textContent = 'mm';
   elems.resTotalLength.textContent = '--';
@@ -1477,9 +1470,9 @@ function onEdgePointerDown(e) {
     elems.btnManualBlade?.classList.remove('hidden');
     redrawManualBladeOverlay();
     updateManualBladeHint('完了 ✓　赤丸をドラッグして調整できます');
-    const _curvePts = state.lastBladeCurvePts;
-    const _curveLen = _curvePts ? calcCurveLengthMm(_curvePts) : null;
-    log(`手動刃渡り曲線: 水平 ${_curvePts ? _curvePts[_curvePts.length-1].xMm.toFixed(1) : '?'} mm / 曲線長 ${_curveLen !== null ? _curveLen.toFixed(1) : '?'} mm`, 'detect');
+    const curvePts = state.lastBladeCurvePts;
+    const curveLen = curvePts ? calcCurveLengthMm(curvePts) : null;
+    log(`手動刃渡り曲線: 水平 ${curvePts ? curvePts[curvePts.length-1].xMm.toFixed(1) : '?'} mm / 曲線長 ${curveLen !== null ? curveLen.toFixed(1) : '?'} mm`, 'detect');
     updateBladeCurveBtn();
     return;
   }
