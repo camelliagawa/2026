@@ -2587,15 +2587,47 @@ log('OpenCV.js を読み込み中...', 'info');
 // 刃先形状タブ
 // =====================================================================
 (function () {
-  const elBsCurveLen = document.getElementById('bs-curve-length');
-  const elBsLayerCnt = document.getElementById('bs-layer-count');
-  const elBsZ        = document.getElementById('bs-z');
-  const elBsXDist    = document.getElementById('bs-x-dist');
-  const elBsYStep    = document.getElementById('bs-y-step');
-  const elBsLoad3d   = document.getElementById('bs-load-3d');
-  const elBsPreview  = document.getElementById('bs-preview');
+  const elBsCurveLen   = document.getElementById('bs-curve-length');
+  const elBsLayerCnt   = document.getElementById('bs-layer-count');
+  const elBsZ          = document.getElementById('bs-z');
+  const elBsXDist      = document.getElementById('bs-x-dist');
+  const elBsYStep      = document.getElementById('bs-y-step');
+  const elBsLoad3d     = document.getElementById('bs-load-3d');
+  const elBsPreview    = document.getElementById('bs-preview');
+  const elBsCsvInput   = document.getElementById('bs-csv-input');
+  const elBsCsvFname   = document.getElementById('bs-csv-fname');
+  const elBsCsvRm      = document.getElementById('bs-csv-rm');
+
+  let bsCsvLengthMm = null; // CSVから計算した刃渡り
+
+  function parseBsCsv(text) {
+    const rows = [];
+    for (const line of text.split('\n')) {
+      const t = line.trim();
+      if (!t || t.startsWith('#')) continue;
+      const cols = t.split(/[\s,;]+/);
+      if (cols.length < 6) continue;
+      const n = cols.slice(0, 6).map(Number);
+      if (n.some(isNaN)) continue;
+      rows.push({ x: n[0], y: n[1], z: n[2] });
+    }
+    return rows;
+  }
+
+  function calcLengthFromCsvRows(rows) {
+    if (!rows || rows.length < 2) return null;
+    let total = 0;
+    for (let i = 1; i < rows.length; i++) {
+      const dx = rows[i].x - rows[i-1].x;
+      const dy = rows[i].y - rows[i-1].y;
+      const dz = rows[i].z - rows[i-1].z;
+      total += Math.sqrt(dx*dx + dy*dy + dz*dz);
+    }
+    return total;
+  }
 
   function getBladeLengthMm() {
+    if (bsCsvLengthMm !== null) return bsCsvLengthMm;
     return calcCurveLengthMm(state.lastBladeCurvePts);
   }
 
@@ -2607,7 +2639,7 @@ log('OpenCV.js を読み込み中...', 'info');
       elBsCurveLen.textContent = '--';
       elBsLayerCnt.textContent = '--';
       elBsLoad3d.disabled = true;
-      elBsPreview.textContent = '先に刃渡りを計測してください。';
+      elBsPreview.textContent = '刃渡り曲線CSVを読み込むか、刃渡りを計測してください。';
       return;
     }
 
@@ -2642,6 +2674,36 @@ log('OpenCV.js を読み込み中...', 'info');
     }
     return rows;
   }
+
+  // ---- CSVファイル読み込み ----
+  elBsCsvInput?.addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const rows = parseBsCsv(ev.target.result);
+      const len  = calcLengthFromCsvRows(rows);
+      if (len === null) {
+        log('刃渡り曲線CSVを解析できません（x y z rx ry rz の6列が必要）', 'warn');
+        return;
+      }
+      bsCsvLengthMm = len;
+      elBsCsvFname.textContent = file.name;
+      elBsCsvFname.classList.remove('hidden');
+      elBsCsvRm.classList.remove('hidden');
+      refreshDisplay();
+    };
+    reader.readAsText(file);
+  });
+
+  // ---- CSV クリア ----
+  elBsCsvRm?.addEventListener('click', () => {
+    bsCsvLengthMm = null;
+    if (elBsCsvInput) elBsCsvInput.value = '';
+    elBsCsvFname.classList.add('hidden');
+    elBsCsvRm.classList.add('hidden');
+    refreshDisplay();
+  });
 
   [elBsZ, elBsXDist, elBsYStep].forEach(el =>
     el?.addEventListener('input', refreshDisplay)
