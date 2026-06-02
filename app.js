@@ -2597,6 +2597,7 @@ log('OpenCV.js を読み込み中...', 'info');
   const elBsCsvInput   = document.getElementById('bs-csv-input');
   const elBsCsvFname   = document.getElementById('bs-csv-fname');
   const elBsCsvRm      = document.getElementById('bs-csv-rm');
+  const elBsXzCanvas   = document.getElementById('bs-xz-canvas');
 
   let bsCsvLengthMm = null; // CSVから計算した刃渡り
 
@@ -2640,6 +2641,7 @@ log('OpenCV.js を読み込み中...', 'info');
       elBsLayerCnt.textContent = '--';
       elBsLoad3d.disabled = true;
       elBsPreview.textContent = '刃渡り曲線CSVを読み込むか、刃渡りを計測してください。';
+      drawXZGraph();
       return;
     }
 
@@ -2656,6 +2658,105 @@ log('OpenCV.js を読み込み中...', 'info');
     elBsPreview.textContent =
       `y=0〜${yMax}mm（${layers}段） ×2点 → 合計${pts}行` +
       `  /  z=${zVal}mm  x=±${(xDist / 2).toFixed(2)}mm`;
+    drawXZGraph();
+  }
+
+  function drawXZGraph() {
+    const canvas = elBsXzCanvas;
+    if (!canvas) return;
+
+    const W = Math.max(canvas.offsetWidth, 100);
+    const H = Math.round(W * 0.5);
+    canvas.width  = W;
+    canvas.height = H;
+    const ctx = canvas.getContext('2d');
+
+    ctx.fillStyle = '#0d1b2e';
+    ctx.fillRect(0, 0, W, H);
+
+    const zVal  = parseFloat(elBsZ.value)     || 20;
+    const xDist = parseFloat(elBsXDist.value) || 5;
+
+    const xHalf = xDist / 2;
+    const xPad  = Math.max(xHalf * 0.4, 1);
+    const zPad  = Math.max(zVal  * 0.15, 1);
+    const xMin  = -xHalf - xPad;
+    const xMax  =  xHalf + xPad;
+    const zMin  = -zPad;
+    const zMax  = zVal + zPad;
+
+    const mg = { left: 46, right: 14, top: 14, bottom: 30 };
+    const pw = W - mg.left - mg.right;
+    const ph = H - mg.top  - mg.bottom;
+
+    const cx = x => mg.left + (x - xMin) / (xMax - xMin) * pw;
+    const cz = z => mg.top  + (1 - (z - zMin) / (zMax - zMin)) * ph;
+
+    // 水平グリッド
+    ctx.strokeStyle = '#1e3050';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+      const gy = mg.top + ph / 4 * i;
+      ctx.beginPath(); ctx.moveTo(mg.left, gy); ctx.lineTo(mg.left + pw, gy); ctx.stroke();
+    }
+
+    // z=0 ライン
+    ctx.strokeStyle = '#3a5070';
+    ctx.lineWidth = 1;
+    const z0y = cz(0);
+    ctx.beginPath(); ctx.moveTo(mg.left, z0y); ctx.lineTo(mg.left + pw, z0y); ctx.stroke();
+
+    // x=0 ライン
+    const x0x = cx(0);
+    ctx.beginPath(); ctx.moveTo(x0x, mg.top); ctx.lineTo(x0x, mg.top + ph); ctx.stroke();
+
+    // 軸フレーム（L字）
+    ctx.strokeStyle = '#3a5070';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(mg.left, mg.top);
+    ctx.lineTo(mg.left, mg.top + ph);
+    ctx.lineTo(mg.left + pw, mg.top + ph);
+    ctx.stroke();
+
+    // 断面ライン（2点を結ぶ）
+    ctx.strokeStyle = '#00e5ff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx(-xHalf), cz(zVal));
+    ctx.lineTo(cx( xHalf), cz(zVal));
+    ctx.stroke();
+
+    // 点
+    ctx.fillStyle = '#ff4455';
+    for (const px of [-xHalf, xHalf]) {
+      ctx.beginPath();
+      ctx.arc(cx(px), cz(zVal), 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // x 軸ラベル
+    ctx.fillStyle = '#7090a0';
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(`x ${xMin.toFixed(1)}`, mg.left, H - 4);
+    ctx.textAlign = 'right';
+    ctx.fillText(`${xMax.toFixed(1)} mm`, mg.left + pw, H - 4);
+
+    // z 軸ラベル（縦書き）
+    ctx.save();
+    ctx.translate(10, mg.top + ph / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = 'center';
+    ctx.fillText('z (mm)', 0, 0);
+    ctx.restore();
+
+    // z 軸目盛り
+    ctx.fillStyle = '#556677';
+    ctx.textAlign = 'right';
+    ctx.font = '9px sans-serif';
+    ctx.fillText('0', mg.left - 3, cz(0) + 4);
+    ctx.fillText(zVal.toFixed(0), mg.left - 3, cz(zVal) + 4);
   }
 
   function computeBladeShapePoints() {
