@@ -1069,6 +1069,62 @@ details[open] .advanced-summary::before {
   pointer-events: none;
 }
 
+.csv3d-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.csv3d-slot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #0f1e32;
+  border-radius: 8px;
+  padding: 6px 8px;
+  min-height: 44px;
+}
+
+.csv3d-sbar {
+  width: 4px;
+  align-self: stretch;
+  border-radius: 2px;
+  flex-shrink: 0;
+  min-height: 28px;
+}
+
+.csv3d-load-lbl {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  padding: 7px 10px;
+  min-height: 34px;
+}
+
+.csv3d-fname {
+  flex: 1;
+  font-size: 0.72rem;
+  color: #a0c0d0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.csv3d-vis-lbl {
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  min-height: unset !important;
+  padding: 2px 0;
+}
+
+.csv3d-rm {
+  flex-shrink: 0;
+  padding: 5px 10px;
+  min-height: 32px !important;
+  font-size: 0.88rem;
+  line-height: 1;
+}
+
 .csv3d-info {
   font-size: 0.78rem;
   color: #7090a0;
