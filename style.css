@@ -735,6 +735,13 @@ select:focus, input:focus {
   letter-spacing: 0.04em;
 }
 
+.version-legend {
+  font-size: 0.65rem;
+  color: rgba(255,255,255,0.28);
+  margin: 2px 0 0;
+  letter-spacing: 0.03em;
+}
+
 /* ======= Advanced Settings (details/summary) ======= */
 .advanced-settings {
   background: #0f3460;
