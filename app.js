@@ -106,7 +106,7 @@ const elems = {
   bladePreviewSection:     $('blade-preview-section'),
   bladePreviewCanvas:      $('blade-preview-canvas'),
   bladePreviewInfo:        $('blade-preview-info'),
-  bladeYConst:             $('blade-y-const'),
+  bladeZConst:             $('blade-z-const'),
   btnBladePreviewOk:       $('btn-blade-preview-ok'),
   btnScaleEqual:           $('btn-scale-equal'),
   btnScaleAuto:            $('btn-scale-auto'),
@@ -1879,31 +1879,31 @@ function drawBladeEdgeCurve(pts) {
 function getBladeParams() {
   return {
     intervalMm: parseFloat(elems.bladeDotInterval?.value) || 1,
-    yConst: parseFloat(elems.bladeYConst?.value) || 30,
+    zConst: parseFloat(elems.bladeZConst?.value) || 0,
   };
 }
 
-function computeBlade6ColData(pts, intervalMm, yConst) {
+function computeBlade6ColData(pts, intervalMm, zConst) {
   const sampled = sampleByMm(pts, intervalMm);
   if (sampled.length < 2) return [];
   return sampled.map((p, i) => {
     const x = p.yMm;
-    const z = p.xMm;
-    let dx, dz;
+    const y = p.xMm;
+    let dx, dy;
     if (i === 0) {
       dx = sampled[1].yMm - sampled[0].yMm;
-      dz = sampled[1].xMm - sampled[0].xMm;
+      dy = sampled[1].xMm - sampled[0].xMm;
     } else if (i === sampled.length - 1) {
       dx = sampled[i].yMm - sampled[i - 1].yMm;
-      dz = sampled[i].xMm - sampled[i - 1].xMm;
+      dy = sampled[i].xMm - sampled[i - 1].xMm;
     } else {
       dx = sampled[i + 1].yMm - sampled[i - 1].yMm;
-      dz = sampled[i + 1].xMm - sampled[i - 1].xMm;
+      dy = sampled[i + 1].xMm - sampled[i - 1].xMm;
     }
-    const ds = Math.sqrt(dx * dx + dz * dz);
+    const ds = Math.sqrt(dx * dx + dy * dy);
     const rx = ds > 0 ? dx / ds : 0;
-    const rz = ds > 0 ? dz / ds : 1;
-    return { x, y: yConst, z, rx, ry: 0, rz };
+    const ry = ds > 0 ? dy / ds : 1;
+    return { x, y, z: zConst, rx, ry, rz: 0 };
   });
 }
 
@@ -1924,30 +1924,30 @@ function drawBladeCurvePreview(data) {
   const pw = W - mg.left - mg.right;
   const ph = H - mg.top - mg.bottom;
 
-  const zMin = data[0].z, zMax = data[data.length - 1].z;
+  const yMin = data[0].y, yMax = data[data.length - 1].y;
   const xs = data.map(d => d.x);
   const xMin = Math.min(...xs), xMax = Math.max(...xs);
   const xPad = (xMax - xMin) * 0.15 || 0.5;
-  const zRange = zMax - zMin || 1;
+  const yRange = yMax - yMin || 1;
   const xRangePadded = (xMax - xMin + xPad * 2) || 1;
 
   let cx, cy;
   if (state.bladeEqualScale) {
-    const pxPerMm = Math.min(pw / zRange, ph / xRangePadded);
-    const offZ = (pw - zRange * pxPerMm) / 2;
+    const pxPerMm = Math.min(pw / yRange, ph / xRangePadded);
+    const offY = (pw - yRange * pxPerMm) / 2;
     const offX = (ph - xRangePadded * pxPerMm) / 2;
-    cx = z => mg.left + offZ + (z - zMin) * pxPerMm;
+    cx = y => mg.left + offY + (y - yMin) * pxPerMm;
     cy = x => mg.top + offX + (x - (xMin - xPad)) * pxPerMm;
   } else {
-    cx = z => mg.left + (z - zMin) / zRange * pw;
+    cx = y => mg.left + (y - yMin) / yRange * pw;
     cy = x => mg.top + (x - (xMin - xPad)) / xRangePadded * ph;
   }
 
   ctx.strokeStyle = '#1e3050';
   ctx.lineWidth = 1;
   for (let i = 0; i <= 4; i++) {
-    const y = mg.top + ph / 4 * i;
-    ctx.beginPath(); ctx.moveTo(mg.left, y); ctx.lineTo(mg.left + pw, y); ctx.stroke();
+    const gridY = mg.top + ph / 4 * i;
+    ctx.beginPath(); ctx.moveTo(mg.left, gridY); ctx.lineTo(mg.left + pw, gridY); ctx.stroke();
   }
 
   ctx.strokeStyle = '#3a5070';
@@ -1961,23 +1961,23 @@ function drawBladeCurvePreview(data) {
   ctx.lineWidth = 2;
   ctx.beginPath();
   data.forEach((d, i) => {
-    i === 0 ? ctx.moveTo(cx(d.z), cy(d.x)) : ctx.lineTo(cx(d.z), cy(d.x));
+    i === 0 ? ctx.moveTo(cx(d.y), cy(d.x)) : ctx.lineTo(cx(d.y), cy(d.x));
   });
   ctx.stroke();
 
   ctx.fillStyle = '#ff4455';
   data.forEach(d => {
     ctx.beginPath();
-    ctx.arc(cx(d.z), cy(d.x), 2.5, 0, Math.PI * 2);
+    ctx.arc(cx(d.y), cy(d.x), 2.5, 0, Math.PI * 2);
     ctx.fill();
   });
 
   ctx.fillStyle = '#7090a0';
   ctx.font = '10px sans-serif';
   ctx.textAlign = 'left';
-  ctx.fillText(`z ${zMin.toFixed(0)}`, mg.left, H - 4);
+  ctx.fillText(`y ${yMin.toFixed(0)}`, mg.left, H - 4);
   ctx.textAlign = 'right';
-  ctx.fillText(`${zMax.toFixed(0)} mm`, mg.left + pw, H - 4);
+  ctx.fillText(`${yMax.toFixed(0)} mm`, mg.left + pw, H - 4);
   ctx.save();
   ctx.translate(10, mg.top + ph / 2);
   ctx.rotate(-Math.PI / 2);
@@ -1993,20 +1993,20 @@ function drawBladeCurvePreview(data) {
 
   if (elems.bladePreviewInfo) {
     elems.bladePreviewInfo.textContent =
-      `${data.length}点  z: ${zMin.toFixed(1)}〜${zMax.toFixed(1)} mm  x: ${xMin.toFixed(3)}〜${xMax.toFixed(3)} mm`;
+      `${data.length}点  y: ${yMin.toFixed(1)}〜${yMax.toFixed(1)} mm  x: ${xMin.toFixed(3)}〜${xMax.toFixed(3)} mm`;
   }
 }
 
 function showBladeCurvePreview(pts) {
-  const { intervalMm, yConst } = getBladeParams();
-  drawBladeCurvePreview(computeBlade6ColData(pts, intervalMm, yConst));
+  const { intervalMm, zConst } = getBladeParams();
+  drawBladeCurvePreview(computeBlade6ColData(pts, intervalMm, zConst));
   elems.bladePreviewSection.classList.remove('hidden');
   elems.bladePreviewSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 function exportBlade6ColCsv(pts) {
-  const { intervalMm, yConst } = getBladeParams();
-  const data = computeBlade6ColData(pts, intervalMm, yConst);
+  const { intervalMm, zConst } = getBladeParams();
+  const data = computeBlade6ColData(pts, intervalMm, zConst);
   const rows = data.map(d =>
     [d.x, d.y, d.z, d.rx, d.ry, d.rz].map(v => v.toFixed(5)).join(',')
   );
@@ -2018,7 +2018,7 @@ function exportBlade6ColCsv(pts) {
   a.download = `blade-6col-${Date.now()}.csv`;
   a.click();
   URL.revokeObjectURL(url);
-  log(`刃渡り曲線CSV出力(6列): ${data.length}点 (${intervalMm}mm間隔, y=${yConst})`, 'info');
+  log(`刃渡り曲線CSV出力(6列): ${data.length}点 (${intervalMm}mm間隔, z=${zConst})`, 'info');
 }
 
 elems.btnBladePreviewOk.addEventListener('click', () => {
@@ -2031,18 +2031,18 @@ function setBladeScale(equal) {
   elems.btnScaleAuto?.classList.toggle('scale-btn-active', !equal);
   const pts = state.lastBladeCurvePts;
   if (!pts || pts.length === 0) return;
-  const { intervalMm, yConst } = getBladeParams();
-  drawBladeCurvePreview(computeBlade6ColData(pts, intervalMm, yConst));
+  const { intervalMm, zConst } = getBladeParams();
+  drawBladeCurvePreview(computeBlade6ColData(pts, intervalMm, zConst));
 }
 
 elems.btnScaleEqual?.addEventListener('click', () => setBladeScale(true));
 elems.btnScaleAuto?.addEventListener('click', () => setBladeScale(false));
 
-elems.bladeYConst?.addEventListener('input', () => {
+elems.bladeZConst?.addEventListener('input', () => {
   const pts = state.lastBladeCurvePts;
   if (!pts || pts.length === 0) return;
-  const { intervalMm, yConst } = getBladeParams();
-  drawBladeCurvePreview(computeBlade6ColData(pts, intervalMm, yConst));
+  const { intervalMm, zConst } = getBladeParams();
+  drawBladeCurvePreview(computeBlade6ColData(pts, intervalMm, zConst));
 });
 
 elems.btnBladeCurve.addEventListener('click', () => {
@@ -2066,8 +2066,8 @@ elems.bladeDotInterval?.addEventListener('input', () => {
     elems.bladeCurveStatus.textContent = `✓ 刃渡り曲線描画済み (${bladeDotCount(state.lastBladeCurvePts)}点)`;
   }
   if (!elems.bladePreviewSection.classList.contains('hidden')) {
-    const { intervalMm, yConst } = getBladeParams();
-    drawBladeCurvePreview(computeBlade6ColData(state.lastBladeCurvePts, intervalMm, yConst));
+    const { intervalMm, zConst } = getBladeParams();
+    drawBladeCurvePreview(computeBlade6ColData(state.lastBladeCurvePts, intervalMm, zConst));
   }
 });
 
