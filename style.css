@@ -782,6 +782,11 @@ select:focus, input:focus {
   color: #8090a0;
 }
 
+.bs-param-disp {
+  font-size: 0.9rem;
+  color: #c8dde8;
+}
+
 /* ======= Advanced Settings (details/summary) ======= */
 .advanced-settings {
   background: #0f3460;
