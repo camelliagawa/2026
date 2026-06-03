@@ -2594,6 +2594,7 @@ log('OpenCV.js を読み込み中...', 'info');
   const elBsYStep      = document.getElementById('bs-y-step');
   const elBsLoad3d     = document.getElementById('bs-load-3d');
   const elBsPreview    = document.getElementById('bs-preview');
+  const elBsN          = document.getElementById('bs-n');
   const elBsCsvInput   = document.getElementById('bs-csv-input');
   const elBsCsvFname   = document.getElementById('bs-csv-fname');
   const elBsCsvRm      = document.getElementById('bs-csv-rm');
@@ -2729,7 +2730,22 @@ log('OpenCV.js を読み込み中...', 'info');
     ctx.closePath();
     ctx.stroke();
 
-    // 点（3つ）
+    // n等分点（左辺・右辺）
+    const n = Math.max(2, parseInt(elBsN?.value) || 3);
+    ctx.fillStyle = '#ffdd44';
+    for (let k = 1; k < n; k++) {
+      const t = k / n;
+      // 左辺: (-xHalf, zVal) → (0, 0)
+      ctx.beginPath();
+      ctx.arc(cx(-xHalf * (1 - t)), cz(zVal * (1 - t)), 4, 0, Math.PI * 2);
+      ctx.fill();
+      // 右辺: (0, 0) → (+xHalf, zVal)
+      ctx.beginPath();
+      ctx.arc(cx(xHalf * t), cz(zVal * t), 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 頂点（3つ）
     ctx.fillStyle = '#ff4455';
     for (const [px, pz] of [[-xHalf, zVal], [0, 0], [xHalf, zVal]]) {
       ctx.beginPath();
@@ -2808,7 +2824,7 @@ log('OpenCV.js を読み込み中...', 'info');
     refreshDisplay();
   });
 
-  [elBsZ, elBsXDist, elBsYStep].forEach(el =>
+  [elBsZ, elBsXDist, elBsYStep, elBsN].forEach(el =>
     el?.addEventListener('input', refreshDisplay)
   );
 

@@ -264,7 +264,7 @@
             </div>
           </div>
 
-          <!-- 断面パラメータ（3つをグリッドで並べる） -->
+          <!-- 断面パラメータ（2×2グリッド） -->
           <div class="control-group">
             <label>断面パラメータ</label>
             <div class="bs-params-grid">
@@ -279,6 +279,10 @@
               <div>
                 <span class="bs-param-lbl">yステップ (mm)</span>
                 <input type="number" id="bs-y-step" value="10" min="1" step="1">
+              </div>
+              <div>
+                <span class="bs-param-lbl">等分数 n</span>
+                <input type="number" id="bs-n" value="3" min="2" max="20" step="1">
               </div>
             </div>
           </div>
