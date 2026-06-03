@@ -2703,8 +2703,8 @@ log('OpenCV.js を読み込み中...', 'info');
     elBsLoad3d.disabled = false;
 
     const zVal   = parseFloat(elBsZ.value) || 20;
-    const thetaL = Math.max(0.1, parseFloat(elBsThetaL.value) || 7.1);
-    const thetaR = Math.max(0.1, parseFloat(elBsThetaR.value) || 7.1);
+    const thetaL = Math.min(80, Math.max(0.1, parseFloat(elBsThetaL.value) || 7.1));
+    const thetaR = Math.min(80, Math.max(0.1, parseFloat(elBsThetaR.value) || 7.1));
     const xL = zVal * Math.tan(thetaL * Math.PI / 180);
     const xR = zVal * Math.tan(thetaR * Math.PI / 180);
     const xDist = xL + xR;
@@ -2729,8 +2729,8 @@ log('OpenCV.js を読み込み中...', 'info');
     ctx.fillRect(0, 0, W, H);
 
     const zVal   = parseFloat(elBsZ.value)      || 20;
-    const thetaL = Math.max(0.1, parseFloat(elBsThetaL?.value) || 7.1);
-    const thetaR = Math.max(0.1, parseFloat(elBsThetaR?.value) || 7.1);
+    const thetaL = Math.min(80, Math.max(0.1, parseFloat(elBsThetaL?.value) || 7.1));
+    const thetaR = Math.min(80, Math.max(0.1, parseFloat(elBsThetaR?.value) || 7.1));
     const xL = zVal * Math.tan(thetaL * Math.PI / 180);
     const xR = zVal * Math.tan(thetaR * Math.PI / 180);
 
@@ -2879,8 +2879,8 @@ log('OpenCV.js を読み込み中...', 'info');
     if (bladeMm === null) return null;
 
     const zVal   = parseFloat(elBsZ.value)  || 20;
-    const thetaL = Math.max(0.1, parseFloat(elBsThetaL?.value) || 7.1);
-    const thetaR = Math.max(0.1, parseFloat(elBsThetaR?.value) || 7.1);
+    const thetaL = Math.min(80, Math.max(0.1, parseFloat(elBsThetaL?.value) || 7.1));
+    const thetaR = Math.min(80, Math.max(0.1, parseFloat(elBsThetaR?.value) || 7.1));
     const xL = zVal * Math.tan(thetaL * Math.PI / 180);
     const xR = zVal * Math.tan(thetaR * Math.PI / 180);
     const yStep = Math.max(1, parseFloat(elBsYStep.value) || 10);
