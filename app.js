@@ -2928,9 +2928,13 @@ log('OpenCV.js を読み込み中...', 'info');
     refreshDisplay();
   });
 
-  [elBsZ, elBsYStep].forEach(el =>
-    el?.addEventListener('input', refreshDisplay)
-  );
+  elBsZ?.addEventListener('input', refreshDisplay);
+
+  // yステップはドット間隔と常に同期（ドット側が master）
+  elems.bladeDotInterval?.addEventListener('input', () => {
+    if (elBsYStep) elBsYStep.value = elems.bladeDotInterval.value;
+    refreshDisplay();
+  });
 
   elBsN?.addEventListener('input', () => {
     renderThetaInputs(Math.min(10, Math.max(1, parseInt(elBsN.value) || 1)));
@@ -2959,7 +2963,10 @@ log('OpenCV.js を読み込み中...', 'info');
     document.querySelector('.tab-btn[data-tab="csv3d"]')?.click();
   });
 
-  // 初期化
+  // 初期化：yステップをドット間隔と同期
+  if (elBsYStep && elems.bladeDotInterval) {
+    elBsYStep.value = elems.bladeDotInterval.value;
+  }
   renderThetaInputs(Math.min(10, Math.max(1, parseInt(elBsN?.value) || 2)));
 
   document.querySelector('.tab-btn[data-tab="blade-shape"]')

@@ -787,6 +787,11 @@ select:focus, input:focus {
   color: #c8dde8;
 }
 
+#bs-y-step[readonly] {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .bs-theta-warn {
   font-size: 0.85rem;
   color: #ff6655;
