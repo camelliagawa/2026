@@ -2630,10 +2630,9 @@ log('OpenCV.js を読み込み中...', 'info');
   const elBsCurveLen   = document.getElementById('bs-curve-length');
   const elBsLayerCnt   = document.getElementById('bs-layer-count');
   const elBsZ          = document.getElementById('bs-z');
-  const elBsThetaL     = document.getElementById('bs-theta-l');
-  const elBsThetaR     = document.getElementById('bs-theta-r');
   const elBsXDistDisp  = document.getElementById('bs-x-dist-disp');
   const elBsThetaWarn  = document.getElementById('bs-theta-warn');
+  const elBsThetaRows  = document.getElementById('bs-theta-rows');
   const elBsYStep      = document.getElementById('bs-y-step');
   const elBsLoad3d     = document.getElementById('bs-load-3d');
   const elBsPreview    = document.getElementById('bs-preview');
@@ -2645,8 +2644,53 @@ log('OpenCV.js を読み込み中...', 'info');
   const elBsScaleEqual  = document.getElementById('bs-scale-equal');
   const elBsScaleAuto   = document.getElementById('bs-scale-auto');
 
+  const DEFAULT_THETA = 7.1;
   let bsCsvLengthMm = null;
   let bsEqualScale  = true;
+  let thetaLArr = [DEFAULT_THETA, DEFAULT_THETA];
+  let thetaRArr = [DEFAULT_THETA, DEFAULT_THETA];
+
+  function getSegmentJunctions(thetaArr, zVal, n) {
+    const dz = zVal / n;
+    const pts = [{x: 0, z: 0}];
+    let xCur = 0;
+    for (let k = 0; k < n; k++) {
+      const t = Math.min(80, Math.max(0.1, thetaArr[k] || DEFAULT_THETA)) * Math.PI / 180;
+      xCur += dz * Math.tan(t);
+      pts.push({x: xCur, z: (k + 1) * dz});
+    }
+    return pts;
+  }
+
+  function renderThetaInputs(n) {
+    while (thetaLArr.length < n) thetaLArr.push(thetaLArr[thetaLArr.length - 1]);
+    while (thetaRArr.length < n) thetaRArr.push(thetaRArr[thetaRArr.length - 1]);
+    thetaLArr.length = n;
+    thetaRArr.length = n;
+
+    elBsThetaRows.innerHTML =
+      `<div class="bs-theta-header"><span></span><span>θL 左 (°)</span><span>θR 右 (°)</span></div>` +
+      Array.from({length: n}, (_, i) =>
+        `<div class="bs-theta-row">` +
+        `<span class="bs-param-lbl">${i + 1}</span>` +
+        `<input type="number" class="bs-tl" data-seg="${i}" value="${thetaLArr[i]}" min="0.1" max="80" step="0.1">` +
+        `<input type="number" class="bs-tr" data-seg="${i}" value="${thetaRArr[i]}" min="0.1" max="80" step="0.1">` +
+        `</div>`
+      ).join('');
+
+    elBsThetaRows.querySelectorAll('.bs-tl').forEach(el =>
+      el.addEventListener('input', e => {
+        thetaLArr[+e.target.dataset.seg] = parseFloat(e.target.value) || DEFAULT_THETA;
+        refreshDisplay();
+      })
+    );
+    elBsThetaRows.querySelectorAll('.bs-tr').forEach(el =>
+      el.addEventListener('input', e => {
+        thetaRArr[+e.target.dataset.seg] = parseFloat(e.target.value) || DEFAULT_THETA;
+        refreshDisplay();
+      })
+    );
+  }
 
   function parseBsCsv(text) {
     const rows = [];
@@ -2682,14 +2726,20 @@ log('OpenCV.js を読み込み中...', 'info');
   function refreshDisplay() {
     const bladeMm = getBladeLengthMm();
     const yStep   = Math.max(1, parseFloat(elBsYStep.value) || 10);
+    const zVal    = parseFloat(elBsZ.value) || 20;
+    const n       = Math.min(10, Math.max(1, parseInt(elBsN?.value) || 1));
 
-    const overLimit = (parseFloat(elBsThetaL.value) > 80) || (parseFloat(elBsThetaR.value) > 80);
+    const overLimit = thetaLArr.some(t => t > 80) || thetaRArr.some(t => t > 80);
     if (elBsThetaWarn) elBsThetaWarn.classList.toggle('hidden', !overLimit);
+
+    const Lpts = getSegmentJunctions(thetaLArr, zVal, n);
+    const Rpts = getSegmentJunctions(thetaRArr, zVal, n);
+    const xDist = Lpts[n].x + Rpts[n].x;
+    if (elBsXDistDisp) elBsXDistDisp.textContent = `${xDist.toFixed(2)} mm`;
 
     if (bladeMm === null) {
       elBsCurveLen.textContent = '--';
       elBsLayerCnt.textContent = '--';
-      if (elBsXDistDisp) elBsXDistDisp.textContent = '-- mm';
       elBsLoad3d.disabled = true;
       elBsPreview.textContent = '刃渡り曲線CSVを読み込むか、刃渡りを計測してください。';
       drawXZGraph();
@@ -2698,26 +2748,15 @@ log('OpenCV.js を読み込み中...', 'info');
 
     const yMax   = Math.floor(bladeMm / yStep) * yStep;
     const layers = Math.floor(bladeMm / yStep) + 1;
-    const n      = Math.max(2, parseInt(elBsN?.value) || 3);
     const ptsPerLayer = 2 * n + 1;
     const pts    = layers * ptsPerLayer;
 
     elBsCurveLen.textContent = bladeMm.toFixed(1);
     elBsLayerCnt.textContent = layers;
     elBsLoad3d.disabled = false;
-
-    const rawL = parseFloat(elBsThetaL.value);
-    const rawR = parseFloat(elBsThetaR.value);
-    const zVal   = parseFloat(elBsZ.value) || 20;
-    const thetaL = Math.min(80, Math.max(0.1, rawL || 7.1));
-    const thetaR = Math.min(80, Math.max(0.1, rawR || 7.1));
-    const xL = zVal * Math.tan(thetaL * Math.PI / 180);
-    const xR = zVal * Math.tan(thetaR * Math.PI / 180);
-    const xDist = xL + xR;
-    if (elBsXDistDisp) elBsXDistDisp.textContent = `${xDist.toFixed(2)} mm`;
     elBsPreview.textContent =
       `y=0〜${yMax}mm（${layers}段） ×${ptsPerLayer}点/段 → 合計${pts}行` +
-      `  /  z=${zVal}mm  θL=${thetaL.toFixed(1)}°  θR=${thetaR.toFixed(1)}°  xDist=${xDist.toFixed(2)}mm`;
+      `  /  z=${zVal}mm  xDist=${xDist.toFixed(2)}mm`;
     drawXZGraph();
   }
 
@@ -2730,30 +2769,27 @@ log('OpenCV.js を読み込み中...', 'info');
     canvas.width  = W;
     canvas.height = H;
     const ctx = canvas.getContext('2d');
+    const zVal  = parseFloat(elBsZ.value) || 20;
+    const n     = Math.min(10, Math.max(1, parseInt(elBsN?.value) || 1));
+    const Lpts  = getSegmentJunctions(thetaLArr, zVal, n);
+    const Rpts  = getSegmentJunctions(thetaRArr, zVal, n);
+    const totalXL = Lpts[n].x;
+    const totalXR = Rpts[n].x;
+    const xSpan = Math.max(totalXL, totalXR);
+    const xPad  = Math.max(xSpan * 0.4, 1);
+    const zPad  = Math.max(zVal  * 0.15, 1);
+    const xMin  = -totalXL - xPad;
+    const xMax  =  totalXR + xPad;
+    const zMin  = -zPad;
+    const zMax  = zVal + zPad;
 
     ctx.fillStyle = '#0d1b2e';
     ctx.fillRect(0, 0, W, H);
 
-    const zVal   = parseFloat(elBsZ.value)      || 20;
-    const thetaL = Math.min(80, Math.max(0.1, parseFloat(elBsThetaL?.value) || 7.1));
-    const thetaR = Math.min(80, Math.max(0.1, parseFloat(elBsThetaR?.value) || 7.1));
-    const xL = zVal * Math.tan(thetaL * Math.PI / 180);
-    const xR = zVal * Math.tan(thetaR * Math.PI / 180);
-
-    const xSpan = Math.max(xL, xR);
-    const xPad  = Math.max(xSpan * 0.4, 1);
-    const zPad  = Math.max(zVal  * 0.15, 1);
-    const xMin  = -xL - xPad;
-    const xMax  =  xR + xPad;
-    const zMin  = -zPad;
-    const zMax  = zVal + zPad;
-
     const mg = { left: 46, right: 14, top: 14, bottom: 30 };
     const pw = W - mg.left - mg.right;
     const ph = H - mg.top  - mg.bottom;
-
-    const xRange = xMax - xMin;
-    const zRange = zMax - zMin;
+    const xRange = xMax - xMin, zRange = zMax - zMin;
     let cx, cz;
     if (bsEqualScale) {
       const pxPerMm = Math.min(pw / xRange, ph / zRange);
@@ -2766,116 +2802,69 @@ log('OpenCV.js を読み込み中...', 'info');
       cz = z => mg.top  + (1 - (z - zMin) / zRange) * ph;
     }
 
-    // 水平グリッド
-    ctx.strokeStyle = '#1e3050';
-    ctx.lineWidth = 1;
+    // グリッド
+    ctx.strokeStyle = '#1e3050'; ctx.lineWidth = 1;
     for (let i = 0; i <= 4; i++) {
       const gy = mg.top + ph / 4 * i;
       ctx.beginPath(); ctx.moveTo(mg.left, gy); ctx.lineTo(mg.left + pw, gy); ctx.stroke();
     }
-
-    // z=0 ライン
     ctx.strokeStyle = '#3a5070';
-    ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(mg.left, cz(0)); ctx.lineTo(mg.left + pw, cz(0)); ctx.stroke();
-
-    // x=0 ライン（二分割軸：少し明るく）
     ctx.strokeStyle = '#5a7090';
-    ctx.lineWidth = 1;
-    const x0x = cx(0);
-    ctx.beginPath(); ctx.moveTo(x0x, mg.top); ctx.lineTo(x0x, mg.top + ph); ctx.stroke();
-
-    // 軸フレーム（L字）
+    ctx.beginPath(); ctx.moveTo(cx(0), mg.top); ctx.lineTo(cx(0), mg.top + ph); ctx.stroke();
     ctx.strokeStyle = '#3a5070';
-    ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(mg.left, mg.top);
-    ctx.lineTo(mg.left, mg.top + ph);
-    ctx.lineTo(mg.left + pw, mg.top + ph);
+    ctx.moveTo(mg.left, mg.top); ctx.lineTo(mg.left, mg.top + ph); ctx.lineTo(mg.left + pw, mg.top + ph);
     ctx.stroke();
 
-    // 三角形（左点 → 原点 → 右点 → 閉じる）
-    ctx.strokeStyle = '#00e5ff';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(cx(-xL), cz(zVal));
-    ctx.lineTo(cx(0),   cz(0));
-    ctx.lineTo(cx( xR), cz(zVal));
-    ctx.closePath();
+    // ポリライン断面
+    ctx.strokeStyle = '#00e5ff'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(cx(0), cz(0));
+    for (let k = 1; k <= n; k++) ctx.lineTo(cx(-Lpts[k].x), cz(Lpts[k].z));
     ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx(0), cz(0));
+    for (let k = 1; k <= n; k++) ctx.lineTo(cx(Rpts[k].x), cz(Rpts[k].z));
+    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx(-totalXL), cz(zVal)); ctx.lineTo(cx(totalXR), cz(zVal)); ctx.stroke();
 
-    // n等分点（左辺・右辺）
-    const n = Math.max(2, parseInt(elBsN?.value) || 3);
+    // 中間接合点（黄）
     ctx.fillStyle = '#ffdd44';
     for (let k = 1; k < n; k++) {
-      const t = k / n;
-      ctx.beginPath();
-      ctx.arc(cx(-xL * (1 - t)), cz(zVal * (1 - t)), 4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(cx(xR * t), cz(zVal * t), 4, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.beginPath(); ctx.arc(cx(-Lpts[k].x), cz(Lpts[k].z), 4, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(cx( Rpts[k].x), cz(Rpts[k].z), 4, 0, Math.PI * 2); ctx.fill();
     }
-
-    // 頂点（3つ）
+    // 頂点3点（赤）
     ctx.fillStyle = '#ff4455';
-    for (const [px, pz] of [[-xL, zVal], [0, 0], [xR, zVal]]) {
-      ctx.beginPath();
-      ctx.arc(cx(px), cz(pz), 4, 0, Math.PI * 2);
-      ctx.fill();
+    for (const [px, pz] of [[-totalXL, zVal], [0, 0], [totalXR, zVal]]) {
+      ctx.beginPath(); ctx.arc(cx(px), cz(pz), 4, 0, Math.PI * 2); ctx.fill();
     }
 
-    // θL・θR 角度アーク＋ラベル
+    // θL1・θR1 アーク（第1セグメントのみ）
     const ox = cx(0), oy = cz(0);
-    const upAng    = -Math.PI / 2;  // z軸方向（画面上）
-    const leftAng  = Math.atan2(cz(zVal) - oy, cx(-xL) - ox);
-    const rightAng = Math.atan2(cz(zVal) - oy, cx( xR) - ox);
+    const upAng    = -Math.PI / 2;
+    const leftAng  = Math.atan2(cz(Lpts[1].z) - oy, cx(-Lpts[1].x) - ox);
+    const rightAng = Math.atan2(cz(Rpts[1].z) - oy, cx( Rpts[1].x) - ox);
     const arcR = 22;
-
-    ctx.strokeStyle = '#ffdd44';
-    ctx.lineWidth = 1.5;
-    // θL arc: leftAng → upAng（時計回り）
-    ctx.beginPath();
-    ctx.arc(ox, oy, arcR, leftAng, upAng, false);
-    ctx.stroke();
-    // θR arc: upAng → rightAng（時計回り）
-    ctx.beginPath();
-    ctx.arc(ox, oy, arcR, upAng, rightAng, false);
-    ctx.stroke();
-
-    ctx.fillStyle = '#ffdd44';
-    ctx.font = 'bold 10px sans-serif';
-    // θL ラベル（左アーク中間点）
+    ctx.strokeStyle = '#ffdd44'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(ox, oy, arcR, leftAng, upAng, false); ctx.stroke();
+    ctx.beginPath(); ctx.arc(ox, oy, arcR, upAng, rightAng, false); ctx.stroke();
+    ctx.fillStyle = '#ffdd44'; ctx.font = 'bold 10px sans-serif';
     const midL = (leftAng + upAng) / 2;
-    const lrL  = arcR + 14;
     ctx.textAlign = 'right';
-    ctx.fillText(`θL=${thetaL.toFixed(1)}°`, ox + lrL * Math.cos(midL), oy + lrL * Math.sin(midL) + 4);
-    // θR ラベル（右アーク中間点）
+    ctx.fillText(`θL1=${thetaLArr[0].toFixed(1)}°`, ox + (arcR+14)*Math.cos(midL), oy + (arcR+14)*Math.sin(midL) + 4);
     const midR = (upAng + rightAng) / 2;
-    const lrR  = arcR + 14;
     ctx.textAlign = 'left';
-    ctx.fillText(`θR=${thetaR.toFixed(1)}°`, ox + lrR * Math.cos(midR), oy + lrR * Math.sin(midR) + 4);
+    ctx.fillText(`θR1=${thetaRArr[0].toFixed(1)}°`, ox + (arcR+14)*Math.cos(midR), oy + (arcR+14)*Math.sin(midR) + 4);
 
-    // x 軸ラベル
-    ctx.fillStyle = '#7090a0';
-    ctx.font = '10px sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillText(`x ${xMin.toFixed(1)}`, mg.left, H - 4);
-    ctx.textAlign = 'right';
-    ctx.fillText(`${xMax.toFixed(1)} mm`, mg.left + pw, H - 4);
-
-    // z 軸ラベル（縦書き）
+    // 軸ラベル
+    ctx.fillStyle = '#7090a0'; ctx.font = '10px sans-serif';
+    ctx.textAlign = 'left';  ctx.fillText(`x ${xMin.toFixed(1)}`, mg.left, H - 4);
+    ctx.textAlign = 'right'; ctx.fillText(`${xMax.toFixed(1)} mm`, mg.left + pw, H - 4);
     ctx.save();
-    ctx.translate(10, mg.top + ph / 2);
-    ctx.rotate(-Math.PI / 2);
-    ctx.textAlign = 'center';
-    ctx.fillText('z (mm)', 0, 0);
+    ctx.translate(10, mg.top + ph / 2); ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = 'center'; ctx.fillText('z (mm)', 0, 0);
     ctx.restore();
-
-    // z 軸目盛り
-    ctx.fillStyle = '#556677';
-    ctx.textAlign = 'right';
-    ctx.font = '9px sans-serif';
+    ctx.fillStyle = '#556677'; ctx.textAlign = 'right'; ctx.font = '9px sans-serif';
     ctx.fillText('0', mg.left - 3, cz(0) + 4);
     ctx.fillText(zVal.toFixed(0), mg.left - 3, cz(zVal) + 4);
   }
@@ -2884,35 +2873,26 @@ log('OpenCV.js を読み込み中...', 'info');
     const bladeMm = getBladeLengthMm();
     if (bladeMm === null) return null;
 
-    const zVal   = parseFloat(elBsZ.value)  || 20;
-    const thetaL = Math.min(80, Math.max(0.1, parseFloat(elBsThetaL?.value) || 7.1));
-    const thetaR = Math.min(80, Math.max(0.1, parseFloat(elBsThetaR?.value) || 7.1));
-    const xL = zVal * Math.tan(thetaL * Math.PI / 180);
-    const xR = zVal * Math.tan(thetaR * Math.PI / 180);
+    const zVal  = parseFloat(elBsZ.value)  || 20;
     const yStep = Math.max(1, parseFloat(elBsYStep.value) || 10);
-    const n     = Math.max(2, parseInt(elBsN?.value) || 3);
+    const n     = Math.min(10, Math.max(1, parseInt(elBsN?.value) || 1));
     const yMax  = Math.floor(bladeMm / yStep) * yStep;
 
-    // 左辺の接線方向: (-xL,zVal)→(0,0)
-    const slL = Math.hypot(xL, zVal);
-    const trxL = slL > 0 ? xL / slL : 1;
-    const trzL = slL > 0 ? -zVal / slL : 0;
-    // 右辺の接線方向: (0,0)→(+xR,zVal)
-    const slR = Math.hypot(xR, zVal);
-    const trxR = slR > 0 ? xR / slR : 1;
-    const trzR = slR > 0 ?  zVal / slR : 0;
+    const Lpts = getSegmentJunctions(thetaLArr, zVal, n);
+    const Rpts = getSegmentJunctions(thetaRArr, zVal, n);
 
     const rows = [];
     for (let y = 0; y <= yMax; y += yStep) {
-      // 左辺: (-xL, zVal) → (0, 0)、n+1点（両端含む）
-      for (let k = 0; k <= n; k++) {
-        const t = k / n;
-        rows.push({ x: -xL * (1 - t), y, z: zVal * (1 - t), rx: trxL, ry: 0, rz: trzL });
+      // 左辺: 左端(Lpts[n]) → apex(Lpts[0])、n+1点（top→apex順）
+      for (let k = n; k >= 0; k--) {
+        const segIdx = Math.max(0, k - 1);
+        const tL = Math.min(80, Math.max(0.1, thetaLArr[segIdx] || DEFAULT_THETA)) * Math.PI / 180;
+        rows.push({ x: -Lpts[k].x, y, z: Lpts[k].z, rx: Math.sin(tL), ry: 0, rz: -Math.cos(tL) });
       }
-      // 右辺: (0, 0) → (+xR, zVal)、n点（原点除く）
+      // 右辺: apex+1(Rpts[1]) → 右端(Rpts[n])、n点
       for (let k = 1; k <= n; k++) {
-        const t = k / n;
-        rows.push({ x: xR * t, y, z: zVal * t, rx: trxR, ry: 0, rz: trzR });
+        const tR = Math.min(80, Math.max(0.1, thetaRArr[k - 1] || DEFAULT_THETA)) * Math.PI / 180;
+        rows.push({ x: Rpts[k].x, y, z: Rpts[k].z, rx: Math.sin(tR), ry: 0, rz: Math.cos(tR) });
       }
     }
     return rows;
@@ -2948,9 +2928,14 @@ log('OpenCV.js を読み込み中...', 'info');
     refreshDisplay();
   });
 
-  [elBsZ, elBsThetaL, elBsThetaR, elBsYStep, elBsN].forEach(el =>
+  [elBsZ, elBsYStep].forEach(el =>
     el?.addEventListener('input', refreshDisplay)
   );
+
+  elBsN?.addEventListener('input', () => {
+    renderThetaInputs(Math.min(10, Math.max(1, parseInt(elBsN.value) || 1)));
+    refreshDisplay();
+  });
 
   elBsScaleEqual?.addEventListener('click', () => {
     bsEqualScale = true;
@@ -2973,6 +2958,9 @@ log('OpenCV.js を読み込み中...', 'info');
     }
     document.querySelector('.tab-btn[data-tab="csv3d"]')?.click();
   });
+
+  // 初期化
+  renderThetaInputs(Math.min(10, Math.max(1, parseInt(elBsN?.value) || 2)));
 
   document.querySelector('.tab-btn[data-tab="blade-shape"]')
     ?.addEventListener('click', refreshDisplay);
