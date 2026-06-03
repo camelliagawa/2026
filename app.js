@@ -1796,13 +1796,13 @@ function sampleByMm(pts, intervalMm) {
 }
 
 function bladeDotCount(pts) {
-  const intervalMm = parseFloat(elems.bladeDotInterval?.value) || 1;
+  const intervalMm = parseFloat(elems.bladeDotInterval?.value) || 10;
   return sampleByMm(pts, intervalMm).length;
 }
 
 function drawBladeEdgeCurve(pts) {
   if (pts.length < 2) return;
-  const intervalMm = parseFloat(elems.bladeDotInterval?.value) || 1;
+  const intervalMm = parseFloat(elems.bladeDotInterval?.value) || 10;
   const dotPts = sampleByMm(pts, intervalMm);
 
   const drawOn = (canvas) => {
@@ -1871,7 +1871,7 @@ function drawBladeEdgeCurve(pts) {
 
 function getBladeParams() {
   return {
-    intervalMm: parseFloat(elems.bladeDotInterval?.value) || 1,
+    intervalMm: parseFloat(elems.bladeDotInterval?.value) || 10,
     xConst: parseFloat(elems.bladeXConst?.value) || 0,
   };
 }
@@ -1930,10 +1930,10 @@ function drawBladeCurvePreview(data) {
     const offY = (pw - yRange * pxPerMm) / 2;
     const offZ = (ph - zRangePadded * pxPerMm) / 2;
     cx = y => mg.left + offY + (y - yMin) * pxPerMm;
-    cy = z => mg.top + offZ + (z - (zMin - zPad)) * pxPerMm;
+    cy = z => mg.top + offZ + (zMax + zPad - z) * pxPerMm;
   } else {
     cx = y => mg.left + (y - yMin) / yRange * pw;
-    cy = z => mg.top + (z - (zMin - zPad)) / zRangePadded * ph;
+    cy = z => mg.top + (1 - (z - (zMin - zPad)) / zRangePadded) * ph;
   }
 
   ctx.strokeStyle = '#1e3050';
