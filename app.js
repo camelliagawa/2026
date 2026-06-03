@@ -2648,7 +2648,9 @@ log('OpenCV.js を読み込み中...', 'info');
 
     const yMax   = Math.floor(bladeMm / yStep) * yStep;
     const layers = Math.floor(bladeMm / yStep) + 1;
-    const pts    = layers * 2;
+    const n      = Math.max(2, parseInt(elBsN?.value) || 3);
+    const ptsPerLayer = 2 * n + 1;
+    const pts    = layers * ptsPerLayer;
 
     elBsCurveLen.textContent = bladeMm.toFixed(1);
     elBsLayerCnt.textContent = layers;
@@ -2656,9 +2658,10 @@ log('OpenCV.js を読み込み中...', 'info');
 
     const zVal  = parseFloat(elBsZ.value)     || 20;
     const xDist = parseFloat(elBsXDist.value) || 5;
+    const theta = 2 * Math.atan2(xDist / 2, zVal) * 180 / Math.PI;
     elBsPreview.textContent =
-      `y=0〜${yMax}mm（${layers}段） ×2点 → 合計${pts}行` +
-      `  /  z=${zVal}mm  x=±${(xDist / 2).toFixed(2)}mm`;
+      `y=0〜${yMax}mm（${layers}段） ×${ptsPerLayer}点/段 → 合計${pts}行` +
+      `  /  z=${zVal}mm  x=±${(xDist / 2).toFixed(2)}mm  θ=${theta.toFixed(1)}°`;
     drawXZGraph();
   }
 
@@ -2753,6 +2756,22 @@ log('OpenCV.js を読み込み中...', 'info');
       ctx.fill();
     }
 
+    // θ 角度アーク＋ラベル
+    const thetaDeg = 2 * Math.atan2(xHalf, zVal) * 180 / Math.PI;
+    const ox = cx(0), oy = cz(0);
+    const leftAng  = Math.atan2(cz(zVal) - oy, cx(-xHalf) - ox);
+    const rightAng = Math.atan2(cz(zVal) - oy, cx( xHalf) - ox);
+    const arcR = 18;
+    ctx.strokeStyle = '#ffdd44';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(ox, oy, arcR, leftAng, rightAng, false);
+    ctx.stroke();
+    ctx.fillStyle = '#ffdd44';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`θ=${thetaDeg.toFixed(1)}°`, ox, oy - arcR - 4);
+
     // x 軸ラベル
     ctx.fillStyle = '#7090a0';
     ctx.font = '10px sans-serif';
@@ -2784,12 +2803,28 @@ log('OpenCV.js を読み込み中...', 'info');
     const zVal  = parseFloat(elBsZ.value)     || 20;
     const xDist = parseFloat(elBsXDist.value) || 5;
     const yStep = Math.max(1, parseFloat(elBsYStep.value) || 10);
+    const n     = Math.max(2, parseInt(elBsN?.value) || 3);
     const yMax  = Math.floor(bladeMm / yStep) * yStep;
+    const xHalf = xDist / 2;
+
+    // 斜辺の接線方向（左辺: 右下向き / 右辺: 右上向き）
+    const slantLen = Math.hypot(xHalf, zVal);
+    const trx = slantLen > 0 ? xHalf / slantLen : 1;
+    const trz_dn = slantLen > 0 ? -zVal / slantLen : 0; // 左辺（下向き）
+    const trz_up = slantLen > 0 ?  zVal / slantLen : 0; // 右辺（上向き）
 
     const rows = [];
     for (let y = 0; y <= yMax; y += yStep) {
-      rows.push({ x: -(xDist / 2), y, z: zVal, rx: 1, ry: 0, rz: 0 });
-      rows.push({ x:   xDist / 2,  y, z: zVal, rx: 1, ry: 0, rz: 0 });
+      // 左辺: (-xHalf, zVal) → (0, 0)、n+1点（両端含む）
+      for (let k = 0; k <= n; k++) {
+        const t = k / n;
+        rows.push({ x: -xHalf * (1 - t), y, z: zVal * (1 - t), rx: trx, ry: 0, rz: trz_dn });
+      }
+      // 右辺: (0, 0) → (+xHalf, zVal)、n点（原点除く）
+      for (let k = 1; k <= n; k++) {
+        const t = k / n;
+        rows.push({ x: xHalf * t, y, z: zVal * t, rx: trx, ry: 0, rz: trz_up });
+      }
     }
     return rows;
   }
