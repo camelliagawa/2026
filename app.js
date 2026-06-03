@@ -2647,8 +2647,8 @@ log('OpenCV.js を読み込み中...', 'info');
   const DEFAULT_THETA = 7.1;
   let bsCsvLengthMm = null;
   let bsEqualScale  = true;
-  let thetaLArr = [DEFAULT_THETA, DEFAULT_THETA];
-  let thetaRArr = [DEFAULT_THETA, DEFAULT_THETA];
+  let thetaLArr = [20, 15, 10, 5, 3];
+  let thetaRArr = [20, 15, 10, 5, 3];
 
   function getSegmentJunctions(thetaArr, zVal, n) {
     const dz = zVal / n;
