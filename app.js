@@ -2638,9 +2638,12 @@ log('OpenCV.js を読み込み中...', 'info');
   const elBsCsvInput   = document.getElementById('bs-csv-input');
   const elBsCsvFname   = document.getElementById('bs-csv-fname');
   const elBsCsvRm      = document.getElementById('bs-csv-rm');
-  const elBsXzCanvas   = document.getElementById('bs-xz-canvas');
+  const elBsXzCanvas    = document.getElementById('bs-xz-canvas');
+  const elBsScaleEqual  = document.getElementById('bs-scale-equal');
+  const elBsScaleAuto   = document.getElementById('bs-scale-auto');
 
-  let bsCsvLengthMm = null; // CSVから計算した刃渡り
+  let bsCsvLengthMm = null;
+  let bsEqualScale  = true;
 
   function parseBsCsv(text) {
     const rows = [];
@@ -2733,8 +2736,19 @@ log('OpenCV.js を読み込み中...', 'info');
     const pw = W - mg.left - mg.right;
     const ph = H - mg.top  - mg.bottom;
 
-    const cx = x => mg.left + (x - xMin) / (xMax - xMin) * pw;
-    const cz = z => mg.top  + (1 - (z - zMin) / (zMax - zMin)) * ph;
+    const xRange = xMax - xMin;
+    const zRange = zMax - zMin;
+    let cx, cz;
+    if (bsEqualScale) {
+      const pxPerMm = Math.min(pw / xRange, ph / zRange);
+      const offX = (pw - xRange * pxPerMm) / 2;
+      const offZ = (ph - zRange * pxPerMm) / 2;
+      cx = x => mg.left + offX + (x - xMin) * pxPerMm;
+      cz = z => mg.top  + offZ + (zMax - z) * pxPerMm;
+    } else {
+      cx = x => mg.left + (x - xMin) / xRange * pw;
+      cz = z => mg.top  + (1 - (z - zMin) / zRange) * ph;
+    }
 
     // 水平グリッド
     ctx.strokeStyle = '#1e3050';
@@ -2902,6 +2916,19 @@ log('OpenCV.js を読み込み中...', 'info');
   [elBsZ, elBsXDist, elBsYStep, elBsN].forEach(el =>
     el?.addEventListener('input', refreshDisplay)
   );
+
+  elBsScaleEqual?.addEventListener('click', () => {
+    bsEqualScale = true;
+    elBsScaleEqual.classList.add('scale-btn-active');
+    elBsScaleAuto.classList.remove('scale-btn-active');
+    drawXZGraph();
+  });
+  elBsScaleAuto?.addEventListener('click', () => {
+    bsEqualScale = false;
+    elBsScaleAuto.classList.add('scale-btn-active');
+    elBsScaleEqual.classList.remove('scale-btn-active');
+    drawXZGraph();
+  });
 
   elBsLoad3d?.addEventListener('click', () => {
     const data = computeBladeShapePoints();
