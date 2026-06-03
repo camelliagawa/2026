@@ -2405,10 +2405,50 @@ log('OpenCV.js を読み込み中...', 'info');
     const data = slot.data;
 
     // パスライン
-    group.add(new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints(data.map(d => new THREE.Vector3(d.x, d.y, d.z))),
-      new THREE.LineBasicMaterial({ color: col.line })
-    ));
+    // 同一y値の点が複数あれば断面フレーム別に独立描画（vvvv状）、
+    // それ以外（連続曲線）は従来通り一本線
+    {
+      const yCount = new Map();
+      data.forEach(d => {
+        const k = Math.round(d.y * 1e4);
+        yCount.set(k, (yCount.get(k) || 0) + 1);
+      });
+      const maxPtsPerY = Math.max(...yCount.values());
+      const mat = new THREE.LineBasicMaterial({ color: col.line });
+
+      if (maxPtsPerY > 1) {
+        // 断面フレームモード: 連続する同y値の点をまとめて独立した Line に
+        let frame = [data[0]];
+        for (let k = 1; k < data.length; k++) {
+          if (Math.abs(data[k].y - data[k - 1].y) < 1e-4) {
+            frame.push(data[k]);
+          } else {
+            if (frame.length >= 2) {
+              group.add(new THREE.Line(
+                new THREE.BufferGeometry().setFromPoints(
+                  frame.map(d => new THREE.Vector3(d.x, d.y, d.z))
+                ), mat
+              ));
+            }
+            frame = [data[k]];
+          }
+        }
+        if (frame.length >= 2) {
+          group.add(new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints(
+              frame.map(d => new THREE.Vector3(d.x, d.y, d.z))
+            ), mat
+          ));
+        }
+      } else {
+        // 連続曲線モード: 全点を一本線で繋ぐ（従来動作）
+        group.add(new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(
+            data.map(d => new THREE.Vector3(d.x, d.y, d.z))
+          ), mat
+        ));
+      }
+    }
 
     // 頂点ドット
     const pa = new Float32Array(data.length * 3);
