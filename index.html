@@ -251,40 +251,42 @@
         <div class="panel-box">
           <h2>刃先形状</h2>
 
+          <!-- CSV読み込み＋刃渡り表示 -->
           <div class="control-group">
             <label>刃渡り曲線CSV</label>
-            <div class="btn-row">
+            <div class="bs-csv-row">
               <label id="bs-csv-load-lbl" class="btn btn-secondary btn-file btn-sm">📂 CSVを読み込む<input type="file" id="bs-csv-input" accept=".csv,.txt"></label>
-              <span id="bs-csv-fname" class="csv3d-fname hidden"></span>
-              <button id="bs-csv-rm" class="btn btn-danger btn-sm hidden">✕</button>
+              <span id="bs-csv-fname" class="bs-csv-fname hidden"></span>
+              <button id="bs-csv-rm" class="btn btn-danger btn-sm bs-csv-rm hidden">✕</button>
+            </div>
+            <div class="bs-length-row">
+              刃渡り&nbsp;<span id="bs-curve-length">--</span>&nbsp;mm&nbsp;→&nbsp;<span id="bs-layer-count">--</span>&nbsp;段
             </div>
           </div>
 
+          <!-- 断面パラメータ（3つをグリッドで並べる） -->
           <div class="control-group">
-            <label>刃渡り（曲線長）</label>
-            <span id="bs-curve-length">--</span> mm
-            &nbsp;→&nbsp;
-            <span id="bs-layer-count">--</span> 段
+            <label>断面パラメータ</label>
+            <div class="bs-params-grid">
+              <div>
+                <span class="bs-param-lbl">z値 (mm)</span>
+                <input type="number" id="bs-z" value="20" min="0" step="1">
+              </div>
+              <div>
+                <span class="bs-param-lbl">2点間距離 (mm)</span>
+                <input type="number" id="bs-x-dist" value="5" min="0.1" step="0.1">
+              </div>
+              <div>
+                <span class="bs-param-lbl">yステップ (mm)</span>
+                <input type="number" id="bs-y-step" value="10" min="1" step="1">
+              </div>
+            </div>
           </div>
 
-          <div class="control-group">
-            <label>z値 (mm)</label>
-            <input type="number" id="bs-z" value="20" min="0" step="1">
-          </div>
-          <div class="control-group">
-            <label>2点間距離 (mm)</label>
-            <input type="number" id="bs-x-dist" value="5" min="0.1" step="0.1">
-          </div>
-          <div class="control-group">
-            <label>yステップ (mm)</label>
-            <input type="number" id="bs-y-step" value="10" min="1" step="1">
-          </div>
+          <!-- xz断面グラフ -->
+          <canvas id="bs-xz-canvas" style="width:100%;border-radius:6px;display:block;margin-bottom:0.5rem;"></canvas>
 
-          <canvas id="bs-xz-canvas" style="width:100%;border-radius:6px;display:block;margin-bottom:0.75rem;"></canvas>
-
-          <div class="btn-row">
-            <button id="bs-load-3d" class="btn btn-primary" disabled>3Dビューアで表示</button>
-          </div>
+          <button id="bs-load-3d" class="btn btn-primary" disabled style="width:100%">3Dビューアで表示</button>
 
           <p id="bs-preview" class="hint-text"></p>
         </div>
