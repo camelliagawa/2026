@@ -787,6 +787,12 @@ select:focus, input:focus {
   color: #c8dde8;
 }
 
+.bs-theta-warn {
+  font-size: 0.85rem;
+  color: #ff6655;
+  margin: 4px 0 0;
+}
+
 /* ======= Advanced Settings (details/summary) ======= */
 .advanced-settings {
   background: #0f3460;

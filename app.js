@@ -2633,6 +2633,7 @@ log('OpenCV.js を読み込み中...', 'info');
   const elBsThetaL     = document.getElementById('bs-theta-l');
   const elBsThetaR     = document.getElementById('bs-theta-r');
   const elBsXDistDisp  = document.getElementById('bs-x-dist-disp');
+  const elBsThetaWarn  = document.getElementById('bs-theta-warn');
   const elBsYStep      = document.getElementById('bs-y-step');
   const elBsLoad3d     = document.getElementById('bs-load-3d');
   const elBsPreview    = document.getElementById('bs-preview');
@@ -2682,6 +2683,9 @@ log('OpenCV.js を読み込み中...', 'info');
     const bladeMm = getBladeLengthMm();
     const yStep   = Math.max(1, parseFloat(elBsYStep.value) || 10);
 
+    const overLimit = (parseFloat(elBsThetaL.value) > 80) || (parseFloat(elBsThetaR.value) > 80);
+    if (elBsThetaWarn) elBsThetaWarn.classList.toggle('hidden', !overLimit);
+
     if (bladeMm === null) {
       elBsCurveLen.textContent = '--';
       elBsLayerCnt.textContent = '--';
@@ -2702,9 +2706,11 @@ log('OpenCV.js を読み込み中...', 'info');
     elBsLayerCnt.textContent = layers;
     elBsLoad3d.disabled = false;
 
+    const rawL = parseFloat(elBsThetaL.value);
+    const rawR = parseFloat(elBsThetaR.value);
     const zVal   = parseFloat(elBsZ.value) || 20;
-    const thetaL = Math.min(80, Math.max(0.1, parseFloat(elBsThetaL.value) || 7.1));
-    const thetaR = Math.min(80, Math.max(0.1, parseFloat(elBsThetaR.value) || 7.1));
+    const thetaL = Math.min(80, Math.max(0.1, rawL || 7.1));
+    const thetaR = Math.min(80, Math.max(0.1, rawR || 7.1));
     const xL = zVal * Math.tan(thetaL * Math.PI / 180);
     const xR = zVal * Math.tan(thetaR * Math.PI / 180);
     const xDist = xL + xR;
