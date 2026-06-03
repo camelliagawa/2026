@@ -2630,7 +2630,9 @@ log('OpenCV.js を読み込み中...', 'info');
   const elBsCurveLen   = document.getElementById('bs-curve-length');
   const elBsLayerCnt   = document.getElementById('bs-layer-count');
   const elBsZ          = document.getElementById('bs-z');
-  const elBsXDist      = document.getElementById('bs-x-dist');
+  const elBsThetaL     = document.getElementById('bs-theta-l');
+  const elBsThetaR     = document.getElementById('bs-theta-r');
+  const elBsXDistDisp  = document.getElementById('bs-x-dist-disp');
   const elBsYStep      = document.getElementById('bs-y-step');
   const elBsLoad3d     = document.getElementById('bs-load-3d');
   const elBsPreview    = document.getElementById('bs-preview');
@@ -2683,6 +2685,7 @@ log('OpenCV.js を読み込み中...', 'info');
     if (bladeMm === null) {
       elBsCurveLen.textContent = '--';
       elBsLayerCnt.textContent = '--';
+      if (elBsXDistDisp) elBsXDistDisp.textContent = '-- mm';
       elBsLoad3d.disabled = true;
       elBsPreview.textContent = '刃渡り曲線CSVを読み込むか、刃渡りを計測してください。';
       drawXZGraph();
@@ -2699,12 +2702,16 @@ log('OpenCV.js を読み込み中...', 'info');
     elBsLayerCnt.textContent = layers;
     elBsLoad3d.disabled = false;
 
-    const zVal  = parseFloat(elBsZ.value)     || 20;
-    const xDist = parseFloat(elBsXDist.value) || 5;
-    const theta = 2 * Math.atan2(xDist / 2, zVal) * 180 / Math.PI;
+    const zVal   = parseFloat(elBsZ.value) || 20;
+    const thetaL = Math.max(0.1, parseFloat(elBsThetaL.value) || 7.1);
+    const thetaR = Math.max(0.1, parseFloat(elBsThetaR.value) || 7.1);
+    const xL = zVal * Math.tan(thetaL * Math.PI / 180);
+    const xR = zVal * Math.tan(thetaR * Math.PI / 180);
+    const xDist = xL + xR;
+    if (elBsXDistDisp) elBsXDistDisp.textContent = `${xDist.toFixed(2)} mm`;
     elBsPreview.textContent =
       `y=0〜${yMax}mm（${layers}段） ×${ptsPerLayer}点/段 → 合計${pts}行` +
-      `  /  z=${zVal}mm  x=±${(xDist / 2).toFixed(2)}mm  θ=${theta.toFixed(1)}°`;
+      `  /  z=${zVal}mm  θL=${thetaL.toFixed(1)}°  θR=${thetaR.toFixed(1)}°  xDist=${xDist.toFixed(2)}mm`;
     drawXZGraph();
   }
 
@@ -2721,14 +2728,17 @@ log('OpenCV.js を読み込み中...', 'info');
     ctx.fillStyle = '#0d1b2e';
     ctx.fillRect(0, 0, W, H);
 
-    const zVal  = parseFloat(elBsZ.value)     || 20;
-    const xDist = parseFloat(elBsXDist.value) || 5;
+    const zVal   = parseFloat(elBsZ.value)      || 20;
+    const thetaL = Math.max(0.1, parseFloat(elBsThetaL?.value) || 7.1);
+    const thetaR = Math.max(0.1, parseFloat(elBsThetaR?.value) || 7.1);
+    const xL = zVal * Math.tan(thetaL * Math.PI / 180);
+    const xR = zVal * Math.tan(thetaR * Math.PI / 180);
 
-    const xHalf = xDist / 2;
-    const xPad  = Math.max(xHalf * 0.4, 1);
+    const xSpan = Math.max(xL, xR);
+    const xPad  = Math.max(xSpan * 0.4, 1);
     const zPad  = Math.max(zVal  * 0.15, 1);
-    const xMin  = -xHalf - xPad;
-    const xMax  =  xHalf + xPad;
+    const xMin  = -xL - xPad;
+    const xMax  =  xR + xPad;
     const zMin  = -zPad;
     const zMax  = zVal + zPad;
 
@@ -2761,10 +2771,11 @@ log('OpenCV.js を読み込み中...', 'info');
     // z=0 ライン
     ctx.strokeStyle = '#3a5070';
     ctx.lineWidth = 1;
-    const z0y = cz(0);
-    ctx.beginPath(); ctx.moveTo(mg.left, z0y); ctx.lineTo(mg.left + pw, z0y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(mg.left, cz(0)); ctx.lineTo(mg.left + pw, cz(0)); ctx.stroke();
 
-    // x=0 ライン
+    // x=0 ライン（二分割軸：少し明るく）
+    ctx.strokeStyle = '#5a7090';
+    ctx.lineWidth = 1;
     const x0x = cx(0);
     ctx.beginPath(); ctx.moveTo(x0x, mg.top); ctx.lineTo(x0x, mg.top + ph); ctx.stroke();
 
@@ -2781,9 +2792,9 @@ log('OpenCV.js を読み込み中...', 'info');
     ctx.strokeStyle = '#00e5ff';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(cx(-xHalf), cz(zVal));
-    ctx.lineTo(cx(0),       cz(0));
-    ctx.lineTo(cx( xHalf), cz(zVal));
+    ctx.moveTo(cx(-xL), cz(zVal));
+    ctx.lineTo(cx(0),   cz(0));
+    ctx.lineTo(cx( xR), cz(zVal));
     ctx.closePath();
     ctx.stroke();
 
@@ -2792,39 +2803,52 @@ log('OpenCV.js を読み込み中...', 'info');
     ctx.fillStyle = '#ffdd44';
     for (let k = 1; k < n; k++) {
       const t = k / n;
-      // 左辺: (-xHalf, zVal) → (0, 0)
       ctx.beginPath();
-      ctx.arc(cx(-xHalf * (1 - t)), cz(zVal * (1 - t)), 4, 0, Math.PI * 2);
+      ctx.arc(cx(-xL * (1 - t)), cz(zVal * (1 - t)), 4, 0, Math.PI * 2);
       ctx.fill();
-      // 右辺: (0, 0) → (+xHalf, zVal)
       ctx.beginPath();
-      ctx.arc(cx(xHalf * t), cz(zVal * t), 4, 0, Math.PI * 2);
+      ctx.arc(cx(xR * t), cz(zVal * t), 4, 0, Math.PI * 2);
       ctx.fill();
     }
 
     // 頂点（3つ）
     ctx.fillStyle = '#ff4455';
-    for (const [px, pz] of [[-xHalf, zVal], [0, 0], [xHalf, zVal]]) {
+    for (const [px, pz] of [[-xL, zVal], [0, 0], [xR, zVal]]) {
       ctx.beginPath();
       ctx.arc(cx(px), cz(pz), 4, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // θ 角度アーク＋ラベル
-    const thetaDeg = 2 * Math.atan2(xHalf, zVal) * 180 / Math.PI;
+    // θL・θR 角度アーク＋ラベル
     const ox = cx(0), oy = cz(0);
-    const leftAng  = Math.atan2(cz(zVal) - oy, cx(-xHalf) - ox);
-    const rightAng = Math.atan2(cz(zVal) - oy, cx( xHalf) - ox);
-    const arcR = 18;
+    const upAng    = -Math.PI / 2;  // z軸方向（画面上）
+    const leftAng  = Math.atan2(cz(zVal) - oy, cx(-xL) - ox);
+    const rightAng = Math.atan2(cz(zVal) - oy, cx( xR) - ox);
+    const arcR = 22;
+
     ctx.strokeStyle = '#ffdd44';
     ctx.lineWidth = 1.5;
+    // θL arc: leftAng → upAng（時計回り）
     ctx.beginPath();
-    ctx.arc(ox, oy, arcR, leftAng, rightAng, false);
+    ctx.arc(ox, oy, arcR, leftAng, upAng, false);
     ctx.stroke();
+    // θR arc: upAng → rightAng（時計回り）
+    ctx.beginPath();
+    ctx.arc(ox, oy, arcR, upAng, rightAng, false);
+    ctx.stroke();
+
     ctx.fillStyle = '#ffdd44';
-    ctx.font = 'bold 11px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(`θ=${thetaDeg.toFixed(1)}°`, ox, oy - arcR - 4);
+    ctx.font = 'bold 10px sans-serif';
+    // θL ラベル（左アーク中間点）
+    const midL = (leftAng + upAng) / 2;
+    const lrL  = arcR + 14;
+    ctx.textAlign = 'right';
+    ctx.fillText(`θL=${thetaL.toFixed(1)}°`, ox + lrL * Math.cos(midL), oy + lrL * Math.sin(midL) + 4);
+    // θR ラベル（右アーク中間点）
+    const midR = (upAng + rightAng) / 2;
+    const lrR  = arcR + 14;
+    ctx.textAlign = 'left';
+    ctx.fillText(`θR=${thetaR.toFixed(1)}°`, ox + lrR * Math.cos(midR), oy + lrR * Math.sin(midR) + 4);
 
     // x 軸ラベル
     ctx.fillStyle = '#7090a0';
@@ -2854,30 +2878,35 @@ log('OpenCV.js を読み込み中...', 'info');
     const bladeMm = getBladeLengthMm();
     if (bladeMm === null) return null;
 
-    const zVal  = parseFloat(elBsZ.value)     || 20;
-    const xDist = parseFloat(elBsXDist.value) || 5;
+    const zVal   = parseFloat(elBsZ.value)  || 20;
+    const thetaL = Math.max(0.1, parseFloat(elBsThetaL?.value) || 7.1);
+    const thetaR = Math.max(0.1, parseFloat(elBsThetaR?.value) || 7.1);
+    const xL = zVal * Math.tan(thetaL * Math.PI / 180);
+    const xR = zVal * Math.tan(thetaR * Math.PI / 180);
     const yStep = Math.max(1, parseFloat(elBsYStep.value) || 10);
     const n     = Math.max(2, parseInt(elBsN?.value) || 3);
     const yMax  = Math.floor(bladeMm / yStep) * yStep;
-    const xHalf = xDist / 2;
 
-    // 斜辺の接線方向（左辺: 右下向き / 右辺: 右上向き）
-    const slantLen = Math.hypot(xHalf, zVal);
-    const trx = slantLen > 0 ? xHalf / slantLen : 1;
-    const trz_dn = slantLen > 0 ? -zVal / slantLen : 0; // 左辺（下向き）
-    const trz_up = slantLen > 0 ?  zVal / slantLen : 0; // 右辺（上向き）
+    // 左辺の接線方向: (-xL,zVal)→(0,0)
+    const slL = Math.hypot(xL, zVal);
+    const trxL = slL > 0 ? xL / slL : 1;
+    const trzL = slL > 0 ? -zVal / slL : 0;
+    // 右辺の接線方向: (0,0)→(+xR,zVal)
+    const slR = Math.hypot(xR, zVal);
+    const trxR = slR > 0 ? xR / slR : 1;
+    const trzR = slR > 0 ?  zVal / slR : 0;
 
     const rows = [];
     for (let y = 0; y <= yMax; y += yStep) {
-      // 左辺: (-xHalf, zVal) → (0, 0)、n+1点（両端含む）
+      // 左辺: (-xL, zVal) → (0, 0)、n+1点（両端含む）
       for (let k = 0; k <= n; k++) {
         const t = k / n;
-        rows.push({ x: -xHalf * (1 - t), y, z: zVal * (1 - t), rx: trx, ry: 0, rz: trz_dn });
+        rows.push({ x: -xL * (1 - t), y, z: zVal * (1 - t), rx: trxL, ry: 0, rz: trzL });
       }
-      // 右辺: (0, 0) → (+xHalf, zVal)、n点（原点除く）
+      // 右辺: (0, 0) → (+xR, zVal)、n点（原点除く）
       for (let k = 1; k <= n; k++) {
         const t = k / n;
-        rows.push({ x: xHalf * t, y, z: zVal * t, rx: trx, ry: 0, rz: trz_up });
+        rows.push({ x: xR * t, y, z: zVal * t, rx: trxR, ry: 0, rz: trzR });
       }
     }
     return rows;
@@ -2913,7 +2942,7 @@ log('OpenCV.js を読み込み中...', 'info');
     refreshDisplay();
   });
 
-  [elBsZ, elBsXDist, elBsYStep, elBsN].forEach(el =>
+  [elBsZ, elBsThetaL, elBsThetaR, elBsYStep, elBsN].forEach(el =>
     el?.addEventListener('input', refreshDisplay)
   );
 
