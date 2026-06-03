@@ -793,6 +793,19 @@ select:focus, input:focus {
   margin: 4px 0 0;
 }
 
+#bs-theta-rows { margin: 6px 0 2px; }
+
+.bs-theta-header,
+.bs-theta-row {
+  display: grid;
+  grid-template-columns: 2rem 1fr 1fr;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.bs-theta-header { font-size: 0.7rem; color: #8090a0; }
+
 /* ======= Advanced Settings (details/summary) ======= */
 .advanced-settings {
   background: #0f3460;
