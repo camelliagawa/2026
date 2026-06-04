@@ -384,7 +384,7 @@ select:focus, input:focus {
 
 .param-row .bs-spin {
   flex-shrink: 0;
-  width: 130px;
+  width: 160px;
 }
 
 /* ======= Sliders ======= */
