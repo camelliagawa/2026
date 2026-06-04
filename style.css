@@ -989,11 +989,18 @@ details[open] .advanced-summary::before {
     align-items: start;
   }
 
-  #action-bar   { grid-area: action;   gap: 10px; padding: 14px; }
-  #display-area { grid-area: display; }
-  #tab-control  { grid-area: control; }
-  #tab-result   { grid-area: result;   display: flex !important; }
-  #tab-history  { grid-area: history;  display: flex !important; }
+  #action-bar      { grid-area: action;   gap: 10px; padding: 14px; }
+  #display-area    { grid-area: display; }
+  #tab-control     { grid-area: control;  display: flex !important; }
+  #tab-result      { grid-area: result;   display: flex !important; }
+  #tab-history     { grid-area: history;  display: flex !important; }
+
+  /* 刃先形状・3D表示はグリッド下段に全幅で常時表示 */
+  #tab-blade-shape,
+  #tab-csv3d {
+    grid-column: 1 / -1;
+    display: flex !important;
+  }
 
   /* デスクトップではタブナビ非表示 */
   #tab-nav {
