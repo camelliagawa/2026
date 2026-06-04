@@ -49,15 +49,10 @@ const elems = {
   btnCapture:         $('btn-capture'),
   fileInput:          $('file-input'),
   cannyLow:           $('canny-low'),
-  cannyLowVal:        $('canny-low-val'),
   cannyHigh:          $('canny-high'),
-  cannyHighVal:       $('canny-high-val'),
   minArea:            $('min-area'),
-  minAreaVal:         $('min-area-val'),
   noiseMinArea:       $('noise-min-area'),
-  noiseMinAreaVal:    $('noise-min-area-val'),
   dotRadius:          $('dot-radius'),
-  dotRadiusVal:       $('dot-radius-val'),
   showEdges:          $('show-edges'),
   btnSaveImage:       $('btn-save-image'),
   btnReset:           $('btn-reset'),
@@ -379,31 +374,34 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 // =====================================================================
 // パラメータ同期
 // =====================================================================
-elems.cannyLow.addEventListener('input', () => {
-  state.params.cannyLow = +elems.cannyLow.value;
-  elems.cannyLowVal.textContent = elems.cannyLow.value;
-});
-elems.cannyHigh.addEventListener('input', () => {
-  state.params.cannyHigh = +elems.cannyHigh.value;
-  elems.cannyHighVal.textContent = elems.cannyHigh.value;
-});
-elems.minArea.addEventListener('input', () => {
-  state.params.minArea = +elems.minArea.value;
-  elems.minAreaVal.textContent = elems.minArea.value;
-});
+elems.cannyLow.addEventListener('input', () => { state.params.cannyLow = +elems.cannyLow.value; });
+elems.cannyHigh.addEventListener('input', () => { state.params.cannyHigh = +elems.cannyHigh.value; });
+elems.minArea.addEventListener('input', () => { state.params.minArea = +elems.minArea.value; });
 elems.noiseMinArea.addEventListener('input', () => {
   state.params.noiseMinArea = +elems.noiseMinArea.value;
-  elems.noiseMinAreaVal.textContent = elems.noiseMinArea.value;
   if (state.lastCanvas) detectKnifeOnCanvas(state.lastCanvas, false);
 });
 elems.dotRadius.addEventListener('input', () => {
   state.params.dotRadius = +elems.dotRadius.value;
-  elems.dotRadiusVal.textContent = elems.dotRadius.value;
   if (state.manualBlade.ago && state.manualBlade.kissaki) redrawManualBladeOverlay();
 });
-elems.showEdges.addEventListener('change', () => {
-  state.params.showEdges = elems.showEdges.checked;
-});
+elems.showEdges.addEventListener('change', () => { state.params.showEdges = elems.showEdges.checked; });
+
+function bindParamSpinBtn(decId, incId, inputEl, min, max, step) {
+  document.getElementById(decId)?.addEventListener('click', () => {
+    inputEl.value = Math.max(min, Math.min(max, +inputEl.value - step));
+    inputEl.dispatchEvent(new Event('input'));
+  });
+  document.getElementById(incId)?.addEventListener('click', () => {
+    inputEl.value = Math.max(min, Math.min(max, +inputEl.value + step));
+    inputEl.dispatchEvent(new Event('input'));
+  });
+}
+bindParamSpinBtn('canny-low-dec',      'canny-low-inc',      elems.cannyLow,    10,  200,   1);
+bindParamSpinBtn('canny-high-dec',     'canny-high-inc',     elems.cannyHigh,   50,  400,   1);
+bindParamSpinBtn('min-area-dec',       'min-area-inc',       elems.minArea,    100, 20000, 100);
+bindParamSpinBtn('noise-min-area-dec', 'noise-min-area-inc', elems.noiseMinArea, 0,  600,  10);
+bindParamSpinBtn('dot-radius-dec',     'dot-radius-inc',     elems.dotRadius,    2,   20,   1);
 
 
 // =====================================================================
