@@ -79,34 +79,68 @@
 
           <div class="control-group">
             <label>画像処理パラメータ</label>
-            <div class="slider-row">
-              <span>エッジ(下):</span>
-              <input type="range" id="canny-low" min="10" max="200" value="50">
-              <span id="canny-low-val">50</span>
+            <div class="param-row">
+              <div class="param-label-wrap">
+                <span class="param-name">エッジ(下)</span>
+                <small class="param-desc">輪郭検出の感度。小さいほど多くのエッジを検出（10〜200）</small>
+              </div>
+              <div class="bs-spin">
+                <button class="bs-spin-btn" id="canny-low-dec">−</button>
+                <input type="number" id="canny-low" min="10" max="200" value="50" step="1">
+                <button class="bs-spin-btn" id="canny-low-inc">+</button>
+              </div>
             </div>
-            <div class="slider-row">
-              <span>エッジ(上):</span>
-              <input type="range" id="canny-high" min="50" max="400" value="150">
-              <span id="canny-high-val">150</span>
+            <div class="param-row">
+              <div class="param-label-wrap">
+                <span class="param-name">エッジ(上)</span>
+                <small class="param-desc">輪郭の確定しきい値。大きいほどエッジを絞り込む（50〜400）</small>
+              </div>
+              <div class="bs-spin">
+                <button class="bs-spin-btn" id="canny-high-dec">−</button>
+                <input type="number" id="canny-high" min="50" max="400" value="150" step="1">
+                <button class="bs-spin-btn" id="canny-high-inc">+</button>
+              </div>
             </div>
-            <div class="slider-row">
-              <span>最小面積:</span>
-              <input type="range" id="min-area" min="100" max="20000" value="2000" step="100">
-              <span id="min-area-val">2000</span>
+            <div class="param-row">
+              <div class="param-label-wrap">
+                <span class="param-name">最小面積 (px²)</span>
+                <small class="param-desc">この面積より小さい輪郭は包丁候補から除外（100〜20000）</small>
+              </div>
+              <div class="bs-spin">
+                <button class="bs-spin-btn" id="min-area-dec">−</button>
+                <input type="number" id="min-area" min="100" max="20000" value="2000" step="100">
+                <button class="bs-spin-btn" id="min-area-inc">+</button>
+              </div>
             </div>
-            <div class="slider-row">
-              <span>ノイズ除去:</span>
-              <input type="range" id="noise-min-area" min="0" max="600" value="0" step="10">
-              <span id="noise-min-area-val">0</span> px²
+            <div class="param-row">
+              <div class="param-label-wrap">
+                <span class="param-name">ノイズ除去 (px²)</span>
+                <small class="param-desc">この面積より小さいエッジ成分をノイズとして除去（0=無効）</small>
+              </div>
+              <div class="bs-spin">
+                <button class="bs-spin-btn" id="noise-min-area-dec">−</button>
+                <input type="number" id="noise-min-area" min="0" max="600" value="0" step="10">
+                <button class="bs-spin-btn" id="noise-min-area-inc">+</button>
+              </div>
             </div>
-            <div class="slider-row">
-              <span>赤丸サイズ:</span>
-              <input type="range" id="dot-radius" min="2" max="20" value="5">
-              <span id="dot-radius-val">5</span> px
+            <div class="param-row">
+              <div class="param-label-wrap">
+                <span class="param-name">赤丸サイズ (px)</span>
+                <small class="param-desc">アゴ・切先マーカーの表示サイズ（2〜20）</small>
+              </div>
+              <div class="bs-spin">
+                <button class="bs-spin-btn" id="dot-radius-dec">−</button>
+                <input type="number" id="dot-radius" min="2" max="20" value="5" step="1">
+                <button class="bs-spin-btn" id="dot-radius-inc">+</button>
+              </div>
             </div>
-            <div class="checkbox-row">
+            <div class="param-row">
+              <div class="param-label-wrap">
+                <span class="param-name">エッジ表示</span>
+                <small class="param-desc">撮影画像にエッジ検出結果を重ねて表示</small>
+              </div>
               <label class="check-label">
-                <input type="checkbox" id="show-edges" checked>エッジ表示
+                <input type="checkbox" id="show-edges" checked>
               </label>
             </div>
           </div>
