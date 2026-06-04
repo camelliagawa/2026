@@ -952,37 +952,21 @@ details[open] .advanced-summary::before {
   }
 
   #main-content {
-    display: grid;
-    grid-template-columns: 340px 1fr;
-    grid-template-areas:
-      "action   result"
-      "snap     result"
-      "camera   history"
-      "control  history";
-    gap: 16px;
-    align-items: start;
+    max-width: 860px;
+    margin: 0 auto;
   }
 
-  #action-bar      { grid-area: action;  gap: 10px; padding: 14px; }
-  #canvas-container { grid-area: snap;   display: block; }
-  #display-area    { grid-area: camera; }
-  #tab-control     { grid-area: control; display: flex !important; }
-  #tab-result      { grid-area: result;  display: flex !important; }
-  #tab-history     { grid-area: history; display: flex !important; }
+  #action-bar { gap: 10px; padding: 14px; }
 
-  /* 刃先形状・3D表示はグリッド下段に全幅で常時表示 */
-  #tab-blade-shape,
-  #tab-csv3d {
-    grid-column: 1 / -1;
-    display: flex !important;
-  }
+  /* デスクトップでは撮影画像プレビューを表示 */
+  #canvas-container { display: block; }
 
-  /* デスクトップではタブナビ非表示 */
+  /* デスクトップでもタブナビを表示 */
   #tab-nav {
-    display: none;
+    display: flex;
   }
 
-  /* デスクトップではヒントテキストを表示 */
+  /* ヒントテキストを表示 */
   .hint-text {
     display: block;
     font-size: 0.78rem;
