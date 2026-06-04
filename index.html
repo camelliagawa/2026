@@ -74,11 +74,28 @@
           </div>
         </div>
 
-        <details id="advanced-settings" class="advanced-settings">
-          <summary class="advanced-summary">詳細設定（画像処理パラメータ）</summary>
+        <div class="control-group">
+          <div class="btn-row">
+            <button id="btn-save-image" class="btn btn-secondary" disabled>画像保存</button>
+            <button id="btn-reset" class="btn btn-secondary">リセット</button>
+          </div>
+        </div>
 
-          <div class="control-group">
-            <label>画像処理パラメータ</label>
+      </div><!-- /#tab-control -->
+
+      <!-- 結果タブ -->
+      <div id="tab-result" class="tab-panel hidden">
+
+        <div id="result-image-box" class="panel-box hidden">
+          <h2>検出画像</h2>
+          <canvas id="annotated-canvas"></canvas>
+        </div>
+
+        <div id="processed-image-box" class="panel-box hidden">
+          <h2>エッジ検出画像</h2>
+          <canvas id="result-processed-canvas"></canvas>
+          <details id="advanced-settings" class="advanced-settings">
+            <summary class="advanced-summary">画像処理パラメータ</summary>
             <div class="param-row">
               <div class="param-label-wrap">
                 <span class="param-name">エッジ(下)</span>
@@ -143,30 +160,7 @@
                 <input type="checkbox" id="show-edges" checked>
               </label>
             </div>
-          </div>
-
-        </details>
-
-        <div class="control-group">
-          <div class="btn-row">
-            <button id="btn-save-image" class="btn btn-secondary" disabled>画像保存</button>
-            <button id="btn-reset" class="btn btn-secondary">リセット</button>
-          </div>
-        </div>
-
-      </div><!-- /#tab-control -->
-
-      <!-- 結果タブ -->
-      <div id="tab-result" class="tab-panel hidden">
-
-        <div id="result-image-box" class="panel-box hidden">
-          <h2>検出画像</h2>
-          <canvas id="annotated-canvas"></canvas>
-        </div>
-
-        <div id="processed-image-box" class="panel-box hidden">
-          <h2>エッジ検出画像</h2>
-          <canvas id="result-processed-canvas"></canvas>
+          </details>
           <div class="calib-card-row" id="edge-calib-row">
             <span class="step-label">①</span>
             <button id="btn-edge-card-calib" class="btn btn-secondary btn-sm">📐 短辺3点でカード校正</button>
