@@ -918,64 +918,6 @@ details[open] .advanced-summary::before {
   font-family: monospace;
 }
 
-.detection-confirm {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.78);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.detection-confirm-box {
-  background: #16213e;
-  border: 2px solid #00e87a;
-  border-radius: 16px;
-  padding: 28px 32px;
-  text-align: center;
-  min-width: 280px;
-  max-width: 90vw;
-  box-shadow: 0 0 40px rgba(0, 232, 122, 0.3);
-}
-
-.detection-confirm-icon {
-  font-size: 2.8rem;
-  color: #00e87a;
-  margin-bottom: 8px;
-  text-shadow: 0 0 20px rgba(0, 232, 122, 0.6);
-}
-
-.detection-confirm-box h2 {
-  color: #e0e0e0;
-  font-size: 1.15rem;
-  margin-bottom: 14px;
-}
-
-.confirm-summary {
-  font-size: 2rem;
-  font-weight: 700;
-  color: #00e87a;
-  font-family: 'Courier New', monospace;
-  margin-bottom: 24px;
-  text-shadow: 0 0 10px rgba(0, 232, 122, 0.4);
-}
-
-.confirm-btn-row {
-  display: flex;
-  gap: 16px;
-  justify-content: center;
-}
-
-.confirm-btn-row .btn {
-  min-width: 110px;
-}
-
-.btn-ok {
-  background: #006e35;
-  color: #fff;
-  border: 1px solid #00e87a55;
-}
 
 .btn-ok:hover:not(:disabled) {
   background: #00a04e;
