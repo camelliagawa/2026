@@ -14,7 +14,6 @@ const state = {
   facingMode: 'environment',     // 'environment'=背面 / 'user'=前面
   calibPixelsPerMm: null,        // px/mm
   history: [],
-  pendingResult: null,
   lastCanvas: null,
   lastRectPts: null,
   lastBladeResult: null,
@@ -97,9 +96,6 @@ const elems = {
   btnClearHistory:    $('btn-clear-history'),
   btnExportCsv:       $('btn-export-csv'),
   logOutput:          $('log-output'),
-  detectionConfirm:   $('detection-confirm'),
-  btnConfirmOk:       $('btn-confirm-ok'),
-  btnConfirmRetry:    $('btn-confirm-retry'),
   confirmSummary:     $('confirm-summary'),
   bladePreviewSection:     $('blade-preview-section'),
   bladePreviewCanvas:      $('blade-preview-canvas'),
@@ -826,13 +822,17 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
 
       if (saveResult) {
         log(`撮影解析: 刃渡り ${bladeOnlyMm ? bladeOnlyMm.toFixed(1) + ' mm' : bladeOnlyPx.toFixed(0) + ' px'} / 全長 ${totalLengthMm ? totalLengthMm.toFixed(1) + ' mm' : totalLengthPx.toFixed(0) + ' px'}`, 'detect');
-        showDetectionConfirm({
+        addHistory({
           bladeLength: bladeOnlyMm ?? bladeOnlyPx,
           bladeWidth:  bladeWidthMm ?? bladeWidthPx,
           angle: angleRaw,
           bladeOnlyMm,
           bladeOnlyPx,
         });
+        const resultTabBtn = document.querySelector('.tab-btn[data-tab="result"]');
+        if (resultTabBtn && window.getComputedStyle(document.getElementById('tab-nav')).display !== 'none') {
+          resultTabBtn.click();
+        }
       }
 
       updateBladeCurveBtn();
@@ -980,40 +980,6 @@ function updateResults({ status, bladeOnlyPx, bladeOnlyMm, totalLengthPx, totalL
 
   elems.resAngle.textContent = angle !== undefined ? angle.toFixed(1) : '--';
 }
-
-// =====================================================================
-// 検出確認ダイアログ
-// =====================================================================
-function showDetectionConfirm(result) {
-  state.pendingResult = result;
-  elems.detectionConfirm.classList.remove('hidden');
-}
-
-function hideDetectionConfirm() {
-  elems.detectionConfirm.classList.add('hidden');
-  state.pendingResult = null;
-}
-
-elems.btnConfirmOk.addEventListener('click', () => {
-  if (state.pendingResult) {
-    addHistory(state.pendingResult);
-    document.querySelector('.tab-btn[data-tab="result"]').click();
-  }
-  hideDetectionConfirm();
-  log('検出結果を確定しました', 'detect');
-});
-
-elems.btnConfirmRetry.addEventListener('click', () => {
-  hideDetectionConfirm();
-  elems.resultImageBox.classList.add('hidden');
-  if (elems.resultProcessedImageBox) elems.resultProcessedImageBox.classList.add('hidden');
-  elems.resStatus.textContent = '待機中';
-  elems.resBladeLength.textContent = '--';
-  elems.unitBladeLength.textContent = 'mm';
-  elems.resTotalLength.textContent = '--';
-  elems.unitTotalLength.textContent = 'mm';
-  log('やり直し: 再度「撮影・解析」ボタンを押してください', 'warn');
-});
 
 // =====================================================================
 // 履歴管理
@@ -2895,6 +2861,7 @@ log('OpenCV.js を読み込み中...', 'info');
     elBsYStep.value = elems.bladeDotInterval.value;
   }
   renderThetaInputs(Math.min(10, Math.max(1, parseInt(elBsN?.value) || 2)));
+  requestAnimationFrame(refreshDisplay);
 
   document.querySelector('.tab-btn[data-tab="blade-shape"]')
     ?.addEventListener('click', refreshDisplay);
