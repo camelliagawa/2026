@@ -2562,13 +2562,20 @@ log('OpenCV.js を読み込み中...', 'info');
     thetaLArr.length = n;
     thetaRArr.length = n;
 
+    const spin = (cls, seg, side, val) =>
+      `<div class="bs-spin">` +
+      `<button class="bs-spin-btn" data-seg="${seg}" data-side="${side}" data-delta="-1">−</button>` +
+      `<input type="number" class="${cls}" data-seg="${seg}" value="${val}" min="1" max="80" step="1">` +
+      `<button class="bs-spin-btn" data-seg="${seg}" data-side="${side}" data-delta="1">+</button>` +
+      `</div>`;
+
     elBsThetaRows.innerHTML =
       `<div class="bs-theta-header"><span></span><span>θL 左 (°)</span><span>θR 右 (°)</span></div>` +
       Array.from({length: n}, (_, i) =>
         `<div class="bs-theta-row">` +
         `<span class="bs-param-lbl">${i + 1}</span>` +
-        `<input type="number" class="bs-tl" data-seg="${i}" value="${thetaLArr[i]}" min="0.1" max="80" step="0.1">` +
-        `<input type="number" class="bs-tr" data-seg="${i}" value="${thetaRArr[i]}" min="0.1" max="80" step="0.1">` +
+        spin('bs-tl', i, 'L', thetaLArr[i]) +
+        spin('bs-tr', i, 'R', thetaRArr[i]) +
         `</div>`
       ).join('');
 
@@ -2581,6 +2588,18 @@ log('OpenCV.js を読み込み中...', 'info');
     elBsThetaRows.querySelectorAll('.bs-tr').forEach(el =>
       el.addEventListener('input', e => {
         thetaRArr[+e.target.dataset.seg] = parseFloat(e.target.value) || DEFAULT_THETA;
+        refreshDisplay();
+      })
+    );
+    elBsThetaRows.querySelectorAll('.bs-spin-btn').forEach(btn =>
+      btn.addEventListener('click', () => {
+        const seg = +btn.dataset.seg;
+        const delta = +btn.dataset.delta;
+        const arr = btn.dataset.side === 'L' ? thetaLArr : thetaRArr;
+        arr[seg] = Math.min(80, Math.max(1, (arr[seg] || DEFAULT_THETA) + delta));
+        const cls = btn.dataset.side === 'L' ? '.bs-tl' : '.bs-tr';
+        const inp = elBsThetaRows.querySelector(`${cls}[data-seg="${seg}"]`);
+        if (inp) inp.value = arr[seg];
         refreshDisplay();
       })
     );
@@ -2856,6 +2875,20 @@ log('OpenCV.js を読み込み中...', 'info');
     }
     document.querySelector('.tab-btn[data-tab="csv3d"]')?.click();
   });
+
+  // z値・分割数 n のスピンボタン
+  function bindSpinBtn(decId, incId, inputEl, min = -Infinity, max = Infinity) {
+    document.getElementById(decId)?.addEventListener('click', () => {
+      inputEl.value = Math.max(min, parseFloat(inputEl.value) - 1);
+      inputEl.dispatchEvent(new Event('input'));
+    });
+    document.getElementById(incId)?.addEventListener('click', () => {
+      inputEl.value = Math.min(max, parseFloat(inputEl.value) + 1);
+      inputEl.dispatchEvent(new Event('input'));
+    });
+  }
+  bindSpinBtn('bs-z-dec', 'bs-z-inc', elBsZ, 0);
+  bindSpinBtn('bs-n-dec', 'bs-n-inc', elBsN, 1, 10);
 
   // 初期化：yステップをドット間隔と同期
   if (elBsYStep && elems.bladeDotInterval) {

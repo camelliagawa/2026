@@ -267,7 +267,11 @@
             <div class="bs-params-grid">
               <div>
                 <span class="bs-param-lbl">z値 (mm)</span>
-                <input type="number" id="bs-z" value="20" min="0" step="1">
+                <div class="bs-spin">
+                  <button class="bs-spin-btn" id="bs-z-dec">−</button>
+                  <input type="number" id="bs-z" value="20" min="0" step="1">
+                  <button class="bs-spin-btn" id="bs-z-inc">+</button>
+                </div>
               </div>
               <div>
                 <span class="bs-param-lbl">yステップ (mm)</span>
@@ -275,7 +279,11 @@
               </div>
               <div>
                 <span class="bs-param-lbl">分割数 n</span>
-                <input type="number" id="bs-n" value="5" min="1" max="10" step="1">
+                <div class="bs-spin">
+                  <button class="bs-spin-btn" id="bs-n-dec">−</button>
+                  <input type="number" id="bs-n" value="5" min="1" max="10" step="1">
+                  <button class="bs-spin-btn" id="bs-n-inc">+</button>
+                </div>
               </div>
               <div>
                 <span class="bs-param-lbl">2点間距離</span>

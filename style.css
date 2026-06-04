@@ -775,6 +775,37 @@ select:focus, input:focus {
 
 .bs-theta-header { font-size: 0.7rem; color: #8090a0; }
 
+.bs-spin {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bs-spin input[type="number"] {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+}
+
+.bs-spin-btn {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  font-size: 1.2rem;
+  line-height: 1;
+  background: #0f3460;
+  color: #c8dde8;
+  border: 1px solid #1a4a7a;
+  border-radius: 6px;
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+}
+
+.bs-spin-btn:active {
+  background: #1a5590;
+}
+
 /* ======= Advanced Settings (details/summary) ======= */
 .advanced-settings {
   background: #0f3460;
