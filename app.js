@@ -2730,10 +2730,10 @@ log('OpenCV.js を読み込み中...', 'info');
     ctx.fillStyle = '#ffdd44'; ctx.font = 'bold 10px sans-serif';
     const midL = (leftAng + upAng) / 2;
     ctx.textAlign = 'right';
-    ctx.fillText(`θL1=${thetaLArr[0].toFixed(1)}°`, ox + (arcR+14)*Math.cos(midL), oy + (arcR+14)*Math.sin(midL) + 4);
+    ctx.fillText(`θL1=${Math.round(thetaLArr[0])}°`, ox + (arcR+14)*Math.cos(midL), oy + (arcR+14)*Math.sin(midL) + 4);
     const midR = (upAng + rightAng) / 2;
     ctx.textAlign = 'left';
-    ctx.fillText(`θR1=${thetaRArr[0].toFixed(1)}°`, ox + (arcR+14)*Math.cos(midR), oy + (arcR+14)*Math.sin(midR) + 4);
+    ctx.fillText(`θR1=${Math.round(thetaRArr[0])}°`, ox + (arcR+14)*Math.cos(midR), oy + (arcR+14)*Math.sin(midR) + 4);
 
     // 軸ラベル
     ctx.fillStyle = '#7090a0'; ctx.font = '10px sans-serif';
