@@ -33,7 +33,6 @@ const state = {
     noiseMinArea: 0,
     dotRadius: 5,
     showEdges: true,
-    showContours: true,
   },
 };
 
@@ -61,7 +60,6 @@ const elems = {
   dotRadius:          $('dot-radius'),
   dotRadiusVal:       $('dot-radius-val'),
   showEdges:          $('show-edges'),
-  showContours:       $('show-contours'),
   btnSaveImage:       $('btn-save-image'),
   btnReset:           $('btn-reset'),
   video:              $('video'),
@@ -410,9 +408,6 @@ elems.dotRadius.addEventListener('input', () => {
 elems.showEdges.addEventListener('change', () => {
   state.params.showEdges = elems.showEdges.checked;
 });
-elems.showContours.addEventListener('change', () => {
-  state.params.showContours = elems.showContours.checked;
-});
 
 
 // =====================================================================
@@ -455,71 +450,7 @@ function analyzeImage(canvas) {
   }
 
   detectKnifeOnCanvas(canvas, true);
-
-  if (calRef) {
-    drawCalibRefOverlay(elems.annotatedCanvas.getContext('2d'), calRef);
-  }
 }
-
-function drawCalibRefOverlay(ctx, found) {
-  ctx.save();
-  ctx.strokeStyle = '#ffff00';
-  ctx.lineWidth = 3;
-  ctx.shadowColor = '#ffff00';
-  ctx.shadowBlur = 8;
-
-  if (found.type === 'card' && found.pts) {
-    // カード輪郭（破線）
-    ctx.setLineDash([6, 4]);
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(found.pts[0].x, found.pts[0].y);
-    for (let i = 1; i < 4; i++) ctx.lineTo(found.pts[i].x, found.pts[i].y);
-    ctx.closePath();
-    ctx.stroke();
-    ctx.setLineDash([]);
-    // 長辺を太線で強調
-    if (found.longEdgePts) {
-      ctx.lineWidth = 4;
-      ctx.shadowBlur = 10;
-      ctx.beginPath();
-      ctx.moveTo(found.longEdgePts[0].x, found.longEdgePts[0].y);
-      ctx.lineTo(found.longEdgePts[1].x, found.longEdgePts[1].y);
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-      // 端点マーカー
-      [found.longEdgePts[0], found.longEdgePts[1]].forEach(p => {
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 7, 0, Math.PI * 2);
-        ctx.fillStyle = '#ffff00';
-        ctx.fill();
-        ctx.strokeStyle = '#000';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-      });
-    }
-    ctx.shadowBlur = 0;
-    // カード長辺ラベルは精度上の理由で非表示
-  } else if (found.type === 'coin') {
-    ctx.beginPath();
-    ctx.arc(found.center.x, found.center.y, found.radiusPx, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-    const text = `500円硬貨 ✓  ${found.pixelsPerMm.toFixed(2)} px/mm`;
-    let lx = found.center.x, ly = found.center.y - found.radiusPx - 6;
-    ctx.font = 'bold 14px sans-serif';
-    ctx.textBaseline = 'bottom';
-    const tw = ctx.measureText(text).width;
-    lx = Math.max(4, Math.min(lx, ctx.canvas.width - tw - 8));
-    ly = Math.max(20, ly);
-    ctx.fillStyle = 'rgba(0,0,0,0.65)';
-    ctx.fillRect(lx - 3, ly - 17, tw + 6, 19);
-    ctx.fillStyle = '#ffff00';
-    ctx.fillText(text, lx, ly);
-  }
-  ctx.restore();
-}
-
 
 function detectReferenceObject(tmpCanvas) {
   let src = null, gray = null, blurred = null, edges = null;
@@ -859,9 +790,6 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
 
     if (bestContour && bestRect) {
       const rectPts = cv.RotatedRect.points(bestRect.rect);
-      if (state.params.showContours) {
-        drawRotatedRect(overlayCtx, rectPts, '#00ff88', 2);
-      }
 
       const totalLengthPx = bestRect.w;   // 刃＋柄の全長
       const bladeWidthPx  = bestRect.h;
@@ -894,7 +822,7 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
         bbox, angle: angleRaw,
       });
 
-      drawAnnotatedResult(srcCanvas, rectPts, bladeResult, state.calibPixelsPerMm);
+      drawAnnotatedResult(srcCanvas);
 
       if (saveResult) {
         log(`撮影解析: 刃渡り ${bladeOnlyMm ? bladeOnlyMm.toFixed(1) + ' mm' : bladeOnlyPx.toFixed(0) + ' px'} / 全長 ${totalLengthMm ? totalLengthMm.toFixed(1) + ' mm' : totalLengthPx.toFixed(0) + ' px'}`, 'detect');
@@ -925,22 +853,6 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
   }
 }
 
-// =====================================================================
-// 描画ヘルパー
-// =====================================================================
-function drawRotatedRect(ctx, pts, color, lineWidth) {
-  ctx.beginPath();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = lineWidth;
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 6;
-  ctx.moveTo(pts[0].x, pts[0].y);
-  for (let i = 1; i < 4; i++) ctx.lineTo(pts[i].x, pts[i].y);
-  ctx.closePath();
-  ctx.stroke();
-  ctx.shadowBlur = 0;
-}
-
 function clearOverlay() {
   const ctx = elems.overlayCanvas.getContext('2d');
   ctx.clearRect(0, 0, elems.overlayCanvas.width, elems.overlayCanvas.height);
@@ -949,29 +861,11 @@ function clearOverlay() {
 // =====================================================================
 // 計測結果アノテーション描画
 // =====================================================================
-function drawAnnotatedResult(srcCanvas, rectPts, bladeResult, calibPpm) {
+function drawAnnotatedResult(srcCanvas) {
   const ac = elems.annotatedCanvas;
   ac.width  = srcCanvas.width;
   ac.height = srcCanvas.height;
-  const ctx = ac.getContext('2d');
-
-  // 元フレームを描画
-  ctx.drawImage(srcCanvas, 0, 0);
-
-  // バウンディングボックス（破線）
-  ctx.save();
-  ctx.strokeStyle = 'rgba(0,255,136,0.6)';
-  ctx.lineWidth = 2;
-  ctx.setLineDash([8, 4]);
-  ctx.beginPath();
-  ctx.moveTo(rectPts[0].x, rectPts[0].y);
-  for (let i = 1; i < 4; i++) ctx.lineTo(rectPts[i].x, rectPts[i].y);
-  ctx.closePath();
-  ctx.stroke();
-  ctx.restore();
-
-  // 刃渡り・柄・刃元マーカーは精度上の理由で非表示
-
+  ac.getContext('2d').drawImage(srcCanvas, 0, 0);
   elems.resultImageBox.classList.remove('hidden');
 }
 
@@ -2053,7 +1947,7 @@ elems.btnBladeCurve.addEventListener('click', () => {
 
 elems.bladeDotInterval?.addEventListener('input', () => {
   if (!state.lastBladeCurvePts || !state.lastCanvas) return;
-  drawAnnotatedResult(state.lastCanvas, state.lastRectPts, state.lastBladeResult, state.calibPixelsPerMm);
+  drawAnnotatedResult(state.lastCanvas);
   drawBladeEdgeCurve(state.lastBladeCurvePts);
   if (elems.bladeCurveStatus) {
     elems.bladeCurveStatus.textContent = `✓ 刃渡り曲線描画済み (${bladeDotCount(state.lastBladeCurvePts)}点)`;
