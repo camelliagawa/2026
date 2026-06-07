@@ -490,6 +490,13 @@ select:focus, input:focus {
   padding-bottom: 8px;
 }
 
+.image-size-label {
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: #7090a0;
+  margin-left: 6px;
+}
+
 .panel-box h3 {
   font-size: 0.9rem;
   color: #a0a0b0;
