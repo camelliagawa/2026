@@ -21,7 +21,7 @@ const state = {
   cameraActive: false,
   stream: null,
   facingMode: 'environment',     // 'environment'=背面 / 'user'=前面
-  calibMode: 'auto',             // 'auto'=カード/硬貨, 'a4'=A4用紙
+  calibMode: 'a4',               // 'auto'=カード, 'a4'=A4用紙（デフォルト）
   calibPixelsPerMm: null,        // px/mm
   history: [],
   lastCanvas: null,
