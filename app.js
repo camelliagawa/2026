@@ -2493,8 +2493,6 @@ log('OpenCV.js を読み込み中...', 'info');
     updateInfo();
     const sa = arrowsChk ? arrowsChk.checked : true;
     openViewer(() => { buildSlot(0, sa); fitAllData(); });
-    const exportBtn = document.getElementById('csv3d-export-aligned');
-    if (exportBtn) exportBtn.disabled = false;
     log('刃先形状をエッジ曲線に合わせて補正しました', 'info');
   });
 
