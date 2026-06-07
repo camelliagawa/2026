@@ -2163,6 +2163,7 @@ log('OpenCV.js を読み込み中...', 'info');
   const COLORS = [
     { line: 0x00e5ff, dot: 0xff4455, arrow: 0x44ff88 },
     { line: 0xff8822, dot: 0xffdd00, arrow: 0xff66cc },
+    { line: 0x50ff80, dot: 0xffffff, arrow: 0x80ffaa }, // slot 2: エッジ曲線（緑）
   ];
   const slots = [
     { data: null, name: '', visible: true },
