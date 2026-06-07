@@ -2656,7 +2656,27 @@ log('OpenCV.js を読み込み中...', 'info');
     updateInfo();
     const sa = arrowsChk ? arrowsChk.checked : true;
     openViewer(() => { buildSlot(0, sa); fitAllData(); });
+    const exportBtn = document.getElementById('csv3d-export-aligned');
+    if (exportBtn) exportBtn.disabled = false;
     log('刃先形状をエッジ曲線に合わせて補正しました', 'info');
+  });
+
+  // ---- 合成結果CSVエクスポート ----
+  document.getElementById('csv3d-export-aligned')?.addEventListener('click', () => {
+    const data = slots[0].data;
+    if (!data || data.length === 0) return;
+    const rows = data.map(p =>
+      [p.x, p.y, p.z, p.rx ?? 0, p.ry ?? 1, p.rz ?? 0].map(v => (+v).toFixed(5)).join(',')
+    );
+    const csv  = ['x,y,z,rx,ry,rz', ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `blade-aligned-${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    log(`合成CSVを出力しました: ${data.length}点`, 'info');
   });
 
   // ---- エッジ曲線専用スロット（slot 2）への読み込み ----
