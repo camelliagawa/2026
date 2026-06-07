@@ -2489,6 +2489,7 @@ log('OpenCV.js を読み込み中...', 'info');
       return { ...p, x: offset.x, y: yNew + offset.y, z: dz + offset.z };
     });
 
+    updateSlotUI(0);
     updateInfo();
     const sa = arrowsChk ? arrowsChk.checked : true;
     openViewer(() => { buildSlot(0, sa); fitAllData(); });
