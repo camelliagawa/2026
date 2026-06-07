@@ -2603,6 +2603,55 @@ log('OpenCV.js を読み込み中...', 'info');
     openViewer(() => { buildSlot(slotIndex, sa); fitAllData(); });
   };
 
+  // ---- 刃先形状をエッジ曲線に合わせて補正 ----
+  document.getElementById('csv3d-align-to-edge')?.addEventListener('click', () => {
+    const bladeData = slots[0].data;
+    const edgeData  = slots[2].data;
+    if (!bladeData || !edgeData || bladeData.length < 2 || edgeData.length < 2) {
+      log('CSV1（刃先形状）とエッジ曲線の両方が必要です', 'warn');
+      return;
+    }
+
+    // 断面ごとのY値一覧（昇順）
+    const bladeYs  = [...new Set(bladeData.map(p => p.y))].sort((a, b) => a - b);
+    const bladeYMin = bladeYs[0];
+    const bladeYMax = bladeYs[bladeYs.length - 1];
+    const bladeYRange = bladeYMax - bladeYMin || 1;
+
+    // エッジ曲線のY範囲
+    const sortedEdge = [...edgeData].sort((a, b) => a.y - b.y);
+    const edgeYMin   = sortedEdge[0].y;
+    const edgeYMax   = sortedEdge[sortedEdge.length - 1].y;
+
+    // 線形補間: bladeのYをedgeのY範囲にマッピング
+    const mapY = y => edgeYMin + (y - bladeYMin) / bladeYRange * (edgeYMax - edgeYMin);
+
+    // エッジ曲線のZ値を線形補間
+    function lerpEdgeZ(y) {
+      if (y <= sortedEdge[0].y) return sortedEdge[0].z;
+      if (y >= sortedEdge[sortedEdge.length - 1].y) return sortedEdge[sortedEdge.length - 1].z;
+      for (let i = 1; i < sortedEdge.length; i++) {
+        if (sortedEdge[i].y >= y) {
+          const t = (y - sortedEdge[i - 1].y) / (sortedEdge[i].y - sortedEdge[i - 1].y);
+          return sortedEdge[i - 1].z + t * (sortedEdge[i].z - sortedEdge[i - 1].z);
+        }
+      }
+      return 0;
+    }
+
+    // 各点のYをリマップし、断面ごとのZオフセットを加算
+    slots[0].data = bladeData.map(p => {
+      const yNew = mapY(p.y);
+      const dz   = lerpEdgeZ(yNew);
+      return { ...p, y: yNew, z: p.z + dz };
+    });
+
+    updateInfo();
+    const sa = arrowsChk ? arrowsChk.checked : true;
+    openViewer(() => { buildSlot(0, sa); fitAllData(); });
+    log('刃先形状をエッジ曲線に合わせて補正しました', 'info');
+  });
+
   // ---- エッジ曲線専用スロット（slot 2）への読み込み ----
   window.csv3dSetEdgeCurve = function (data) {
     slots[2].data    = data;
