@@ -689,9 +689,14 @@ select:focus, input:focus {
   font-size: 0.9rem;
 }
 
-.btn-reload-last:hover {
+.btn-reload-last:hover:not(:disabled) {
   background: #243a5e;
   color: #c8daf0;
+}
+
+.btn-reload-last:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 /* ======= Download saved image button ======= */
