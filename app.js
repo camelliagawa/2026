@@ -1591,6 +1591,10 @@ function drawEdgeCardCalibOverlay() {
 }
 
 function startEdgeCardCalib() {
+  if (!state.edgeCanvasImageData) {
+    log('先に画像を撮影・解析してください。', 'warn');
+    return;
+  }
   // ブレードモードが選択中なら中断
   if (state.manualBlade.step >= 1 && state.manualBlade.step <= 2) {
     state.manualBlade = { step: 0, ago: null, kissaki: null, dragging: null };
@@ -1601,7 +1605,7 @@ function startEdgeCardCalib() {
   }
   state.edgeCardCalib = { step: 1, pts: [], dragging: null };
   const canvas = elems.resultProcessedCanvas;
-  if (canvas && state.edgeCanvasImageData) {
+  if (canvas) {
     canvas.getContext('2d').putImageData(state.edgeCanvasImageData, 0, 0);
   }
   elems.btnEdgeCardCalib?.classList.add('hidden');
