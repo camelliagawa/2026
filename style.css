@@ -1173,6 +1173,12 @@ details[open] .advanced-summary::before {
   min-height: 34px;
 }
 
+.csv3d-edge-empty {
+  flex: 1;
+  font-size: 0.72rem;
+  color: #506070;
+}
+
 .csv3d-fname {
   flex: 1;
   font-size: 0.72rem;
