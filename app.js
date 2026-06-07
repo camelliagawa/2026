@@ -87,6 +87,7 @@ const elems = {
   resultImageBox:          $('result-image-box'),
   resultProcessedCanvas:   $('result-processed-canvas'),
   resultProcessedImageBox: $('processed-image-box'),
+  edgeImageSize:           $('edge-image-size'),
   btnBladeCurve:      $('btn-blade-curve'),
   bladeCurveStatus:   $('blade-curve-status'),
   bladeDotInterval:       $('blade-dot-interval'),
@@ -852,6 +853,7 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
       edgeRgba.delete();
       const ec = elems.resultProcessedCanvas;
       state.edgeCanvasImageData = ec.getContext('2d').getImageData(0, 0, ec.width, ec.height);
+      if (elems.edgeImageSize) elems.edgeImageSize.textContent = `${ec.width} × ${ec.height} px`;
       elems.resultProcessedImageBox.classList.remove('hidden');
     }
 
