@@ -70,7 +70,6 @@ const elems = {
   video:              $('video'),
   overlayCanvas:      $('overlay-canvas'),
   processedCanvas:    $('processed-canvas'),
-  resStatus:          $('res-status'),
   resBladeLength:     $('res-blade-length'),
   unitBladeLength:    $('unit-blade-length'),
   resCurveLength:     $('res-curve-length'),
@@ -942,7 +941,6 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
       updateBladeCurveBtn();
       bestContour.delete();
     } else {
-      elems.resStatus.textContent = '包丁未検出';
       if (saveResult) log('包丁を検出できませんでした。パラメータを調整してください。', 'warn');
     }
 
@@ -1068,7 +1066,6 @@ function setVal(valElem, unitElem, mm, px, unitLabel = 'mm') {
 function updateResults({ status, bladeOnlyPx, bladeOnlyMm, totalLengthPx, totalLengthMm,
                          bladeWidthPx, bladeWidthMm, bbox, angle }) {
   const calib = state.calibPixelsPerMm;
-  elems.resStatus.textContent = calib ? status : `${status}（キャリブレーション未設定・px表示）`;
 
   setVal(elems.resBladeLength,  elems.unitBladeLength,  bladeOnlyMm,   bladeOnlyPx);
   setVal(elems.resTotalLength,  elems.unitTotalLength,  totalLengthMm, totalLengthPx);
@@ -2090,7 +2087,6 @@ function resetApp() {
   elems.resBbox.textContent = '--';
   elems.unitBbox.textContent = 'mm';
   elems.resAngle.textContent = '--';
-  elems.resStatus.textContent = '待機中';
   elems.processedCanvas.getContext('2d').clearRect(0, 0, elems.processedCanvas.width, elems.processedCanvas.height);
   elems.resultImageBox.classList.add('hidden');
   elems.resultProcessedImageBox.classList.add('hidden');
