@@ -26,9 +26,6 @@ const state = {
   calibFromAutoLoad: false,      // 起動時の前回画像自動読み込みによる校正かどうか
   history: [],
   lastCanvas: null,
-  lastRectPts: null,
-  lastBladeResult: null,
-  lastKnifeMetrics: null,
   lastBladeCurvePts: null,
   edgeCanvasImageData: null,
   manualBlade: { step: 0, ago: null, kissaki: null, dragging: null },
@@ -96,7 +93,6 @@ const elems = {
   btnClearHistory:    $('btn-clear-history'),
   btnExportCsv:       $('btn-export-csv'),
   logOutput:          $('log-output'),
-  confirmSummary:     $('confirm-summary'),
   savedImageHint:          $('saved-image-hint'),
   btnReloadLast:           $('btn-reload-last'),
   btnDownloadSaved:        $('btn-download-saved'),
@@ -877,9 +873,7 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
     clearOverlay();
 
     if (bestContour && bestRect) {
-      const rectPts = cv.RotatedRect.points(bestRect.rect);
-
-      const totalLengthPx = bestRect.w;   // 刃＋柄の全長
+      const totalLengthPx = bestRect.w;
       const bladeWidthPx  = bestRect.h;
       const angleRaw      = bestRect.rect.angle;
 
@@ -896,19 +890,7 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
         bladeWidthMm  = bladeWidthPx  / state.calibPixelsPerMm;
       }
 
-      const bbox = cv.boundingRect(bestContour);
-
-      state.lastRectPts = rectPts;
-      state.lastBladeResult = bladeResult;
-      state.lastKnifeMetrics = { bladeOnlyPx, totalLengthPx, bladeWidthPx, bbox, angle: angleRaw };
-
-      updateResults({
-        status: '包丁検出',
-        bladeOnlyPx,   bladeOnlyMm,
-        totalLengthPx, totalLengthMm,
-        bladeWidthPx,  bladeWidthMm,
-        bbox, angle: angleRaw,
-      });
+      updateResults({ bladeOnlyPx, bladeOnlyMm, angle: angleRaw });
 
       drawAnnotatedResult(srcCanvas);
 
@@ -918,8 +900,6 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
           bladeLength: bladeOnlyMm ?? bladeOnlyPx,
           bladeWidth:  bladeWidthMm ?? bladeWidthPx,
           angle: angleRaw,
-          bladeOnlyMm,
-          bladeOnlyPx,
         });
         const resultTabBtn = document.querySelector('.tab-btn[data-tab="result"]');
         if (resultTabBtn && window.getComputedStyle(document.getElementById('tab-nav')).display !== 'none') {
@@ -987,8 +967,8 @@ function estimateBladeLength(contour, rect) {
     });
   }
 
-  const minX = Math.min(...pts.map(p => p.x));
-  const maxX = Math.max(...pts.map(p => p.x));
+  let minX = Infinity, maxX = -Infinity;
+  for (const p of pts) { if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x; }
   const range = maxX - minX;
   if (range < 1) return null;
 
@@ -1052,12 +1032,8 @@ function setVal(valElem, unitElem, mm, px, unitLabel = 'mm') {
   }
 }
 
-function updateResults({ status, bladeOnlyPx, bladeOnlyMm, totalLengthPx, totalLengthMm,
-                         bladeWidthPx, bladeWidthMm, bbox, angle }) {
-  const calib = state.calibPixelsPerMm;
-
-  setVal(elems.resBladeLength,  elems.unitBladeLength,  bladeOnlyMm,   bladeOnlyPx);
-
+function updateResults({ bladeOnlyPx, bladeOnlyMm, angle }) {
+  setVal(elems.resBladeLength, elems.unitBladeLength, bladeOnlyMm, bladeOnlyPx);
   elems.resAngle.textContent = angle !== undefined ? angle.toFixed(1) : '--';
 }
 
@@ -1158,7 +1134,7 @@ function detectJuncBin(wSmoothed, bottomEdge, maxBin, tipSide, BINS) {
       if (v !== Infinity && v !== -Infinity) { if (v < handleY) handleY = v; handleN++; }
     }
   }
-  if (handleN === 0) return tipSide === 'right' ? bladeMaxBin : bladeMaxBin;
+  if (handleN === 0) return bladeMaxBin;
 
   // Cutting edge Y at blade heel — the reference depth of the blade cutting edge.
   const heelY = bottomEdge[bladeMaxBin];
@@ -1615,6 +1591,10 @@ function drawEdgeCardCalibOverlay() {
 }
 
 function startEdgeCardCalib() {
+  if (!state.edgeCanvasImageData) {
+    log('先に画像を撮影・解析してください。', 'warn');
+    return;
+  }
   // ブレードモードが選択中なら中断
   if (state.manualBlade.step >= 1 && state.manualBlade.step <= 2) {
     state.manualBlade = { step: 0, ago: null, kissaki: null, dragging: null };
@@ -1625,7 +1605,7 @@ function startEdgeCardCalib() {
   }
   state.edgeCardCalib = { step: 1, pts: [], dragging: null };
   const canvas = elems.resultProcessedCanvas;
-  if (canvas && state.edgeCanvasImageData) {
+  if (canvas) {
     canvas.getContext('2d').putImageData(state.edgeCanvasImageData, 0, 0);
   }
   elems.btnEdgeCardCalib?.classList.add('hidden');
@@ -1639,21 +1619,24 @@ function handleEdgeCardCalibClick(e) {
   const canvas = elems.resultProcessedCanvas;
   const { x, y } = edgeCanvasCoords(e);
   const snapped = snapToEdge(canvas, x, y, 30);
+  const refreshCanvas = () => {
+    canvas.getContext('2d').putImageData(state.edgeCanvasImageData, 0, 0);
+    drawEdgeCardCalibOverlay();
+  };
+  const refEdge = state.calibMode === 'a4' ? 'A4用紙の短辺' : 'カード短辺';
 
   if (ec.step === 1) {
     ec.pts = [snapped];
     ec.step = 2;
-    canvas.getContext('2d').putImageData(state.edgeCanvasImageData, 0, 0);
-    drawEdgeCardCalibOverlay();
-    updateEdgeCalibHint(`② 同じ${state.calibMode === 'a4' ? 'A4用紙の短辺' : 'カード短辺'}の2点目をタップ →`);
+    refreshCanvas();
+    updateEdgeCalibHint(`② 同じ${refEdge}の2点目をタップ →`);
     return;
   }
 
   if (ec.step === 2) {
     ec.pts.push(snapped);
     ec.step = 3;
-    canvas.getContext('2d').putImageData(state.edgeCanvasImageData, 0, 0);
-    drawEdgeCardCalibOverlay();
+    refreshCanvas();
     updateEdgeCalibHint('③ 反対側の短辺をタップ →');
     return;
   }
@@ -1896,9 +1879,6 @@ function resetApp() {
   state.edgeCanvasImageData = null;
   state.calibPixelsPerMm  = null;
   state.lastCanvas        = null;
-  state.lastRectPts       = null;
-  state.lastBladeResult   = null;
-  state.lastKnifeMetrics  = null;
   state.lastBladeCurvePts = null;
   state.history           = [];
 
@@ -2107,7 +2087,7 @@ log('OpenCV.js を読み込み中...', 'info');
         o.theta -= dx * 0.01;
         o.phi = Math.max(0.05, Math.min(Math.PI - 0.05, o.phi + dy * 0.01));
         place();
-      } else if (e.touches.length === 2 && p0 != null) {
+      } else if (e.touches.length === 2 && p0 !== null) {
         const d = Math.hypot(
           e.touches[0].clientX - e.touches[1].clientX,
           e.touches[0].clientY - e.touches[1].clientY
@@ -2158,17 +2138,19 @@ log('OpenCV.js を読み込み中...', 'info');
 
   function fitView(data) {
     if (!viewer || !data || !data.length) return;
-    const xs = data.map(d => d.x), ys = data.map(d => d.y), zs = data.map(d => d.z);
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+    let minZ = Infinity, maxZ = -Infinity;
+    for (const d of data) {
+      if (d.x < minX) minX = d.x; if (d.x > maxX) maxX = d.x;
+      if (d.y < minY) minY = d.y; if (d.y > maxY) maxY = d.y;
+      if (d.z < minZ) minZ = d.z; if (d.z > maxZ) maxZ = d.z;
+    }
     const { o, place } = viewer;
-    o.tx = (Math.min(...xs) + Math.max(...xs)) / 2;
-    o.ty = (Math.min(...ys) + Math.max(...ys)) / 2;
-    o.tz = (Math.min(...zs) + Math.max(...zs)) / 2;
-    const span = Math.max(
-      Math.max(...xs) - Math.min(...xs),
-      Math.max(...ys) - Math.min(...ys),
-      Math.max(...zs) - Math.min(...zs),
-      0.5
-    );
+    o.tx = (minX + maxX) / 2;
+    o.ty = (minY + maxY) / 2;
+    o.tz = (minZ + maxZ) / 2;
+    const span = Math.max(maxX - minX, maxY - minY, maxZ - minZ, 0.5);
     o.r = span * 2.5;
     place();
     viewer.setAxisLen(span * 0.18);
@@ -2585,17 +2567,13 @@ log('OpenCV.js を読み込み中...', 'info');
         `</div>`
       ).join('');
 
-    elBsThetaRows.querySelectorAll('.bs-tl').forEach(el =>
-      el.addEventListener('input', e => {
-        thetaLArr[+e.target.dataset.seg] = parseFloat(e.target.value) || DEFAULT_THETA;
-        refreshDisplay();
-      })
-    );
-    elBsThetaRows.querySelectorAll('.bs-tr').forEach(el =>
-      el.addEventListener('input', e => {
-        thetaRArr[+e.target.dataset.seg] = parseFloat(e.target.value) || DEFAULT_THETA;
-        refreshDisplay();
-      })
+    [{ cls: '.bs-tl', arr: thetaLArr }, { cls: '.bs-tr', arr: thetaRArr }].forEach(({ cls, arr }) =>
+      elBsThetaRows.querySelectorAll(cls).forEach(el =>
+        el.addEventListener('input', e => {
+          arr[+e.target.dataset.seg] = parseFloat(e.target.value) || DEFAULT_THETA;
+          refreshDisplay();
+        })
+      )
     );
     elBsThetaRows.querySelectorAll('.bs-spin-btn').forEach(btn =>
       btn.addEventListener('click', () => {
@@ -2609,32 +2587,6 @@ log('OpenCV.js を読み込み中...', 'info');
         refreshDisplay();
       })
     );
-  }
-
-  function parseBsCsv(text) {
-    const rows = [];
-    for (const line of text.split('\n')) {
-      const t = line.trim();
-      if (!t || t.startsWith('#')) continue;
-      const cols = t.split(/[\s,;]+/);
-      if (cols.length < 6) continue;
-      const n = cols.slice(0, 6).map(Number);
-      if (n.some(isNaN)) continue;
-      rows.push({ x: n[0], y: n[1], z: n[2] });
-    }
-    return rows;
-  }
-
-  function calcLengthFromCsvRows(rows) {
-    if (!rows || rows.length < 2) return null;
-    let total = 0;
-    for (let i = 1; i < rows.length; i++) {
-      const dx = rows[i].x - rows[i-1].x;
-      const dy = rows[i].y - rows[i-1].y;
-      const dz = rows[i].z - rows[i-1].z;
-      total += Math.sqrt(dx*dx + dy*dy + dz*dz);
-    }
-    return total;
   }
 
   function getBladeLengthMm() {
