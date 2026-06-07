@@ -2010,8 +2010,8 @@ elems.btnPreviewCurve3d.addEventListener('click', () => {
   if (!pts || pts.length === 0) return;
   const { intervalMm, xConst } = getBladeParams();
   const data = computeBlade6ColData(pts, intervalMm, xConst);
-  if (typeof window.csv3dLoadData === 'function') {
-    window.csv3dLoadData(0, data, '刃渡り曲線');
+  if (typeof window.csv3dSetEdgeCurve === 'function') {
+    window.csv3dSetEdgeCurve(data);
   }
   const tab3d = document.querySelector('.tab-btn[data-tab="csv3d"]');
   if (tab3d) tab3d.click();
@@ -2167,6 +2167,7 @@ log('OpenCV.js を読み込み中...', 'info');
   const slots = [
     { data: null, name: '', visible: true },
     { data: null, name: '', visible: true },
+    { data: null, name: 'エッジ曲線', visible: true }, // slot 2: エッジ画像検出曲線専用
   ];
   let viewer = null;
   const arrowsChk = document.getElementById('csv3d-show-arrows');
@@ -2305,7 +2306,7 @@ log('OpenCV.js を読み込み中...', 'info');
     canvas.addEventListener('touchend', () => { td = null; p0 = null; });
 
     // ---- スロット別データグループ（2つ）----
-    const slotGroups = [new THREE.Group(), new THREE.Group()];
+    const slotGroups = [new THREE.Group(), new THREE.Group(), new THREE.Group()];
     slotGroups.forEach(g => scene.add(g));
 
     (function render() {
@@ -2457,6 +2458,7 @@ log('OpenCV.js を読み込み中...', 'info');
     const sa = arrowsChk ? arrowsChk.checked : true;
     buildSlot(0, sa);
     buildSlot(1, sa);
+    buildSlot(2, sa);
   }
 
   function parseCsv(text) {
@@ -2503,7 +2505,7 @@ log('OpenCV.js を読み込み中...', 'info');
     const hasAny = slots.some(s => s.data);
     if (empty) empty.style.display = hasAny ? 'none' : '';
     if (!info) return;
-    const parts = slots.map((s, i) => s.data ? `CSV${i+1}: ${s.data.length}点` : null).filter(Boolean);
+    const parts = slots.map((s, i) => s.data ? (i < 2 ? `CSV${i+1}: ${s.data.length}点` : `${s.name}: ${s.data.length}点`) : null).filter(Boolean);
     if (parts.length) { info.textContent = parts.join('　'); info.classList.remove('hidden'); }
     else              { info.classList.add('hidden'); }
   }
@@ -2598,6 +2600,17 @@ log('OpenCV.js を読み込み中...', 'info');
     updateInfo();
     const sa = arrowsChk ? arrowsChk.checked : true;
     openViewer(() => { buildSlot(slotIndex, sa); fitAllData(); });
+  };
+
+  // ---- エッジ曲線専用スロット（slot 2）への読み込み ----
+  window.csv3dSetEdgeCurve = function (data) {
+    slots[2].data    = data;
+    slots[2].name    = 'エッジ曲線';
+    slots[2].visible = true;
+    updateSlotUI(2);
+    updateInfo();
+    const sa = arrowsChk ? arrowsChk.checked : true;
+    openViewer(() => { buildSlot(2, sa); fitAllData(); });
   };
 })();
 
