@@ -311,6 +311,7 @@ async function startCamera() {
     elems.btnStopCamera.disabled = false;
     elems.btnFlipCamera.disabled = false;
     elems.btnCapture.disabled = !state.opencvReady;
+    elems.btnCapture.textContent = '📷 撮影';
 
     const facing = state.facingMode === 'environment' ? '背面' : '前面';
     log(`カメラ開始: ${elems.video.videoWidth}x${elems.video.videoHeight} (${deviceId ? 'デバイス指定' : facing})`, 'info');
@@ -335,6 +336,7 @@ function stopCamera() {
   elems.btnStopCamera.disabled = true;
   elems.btnFlipCamera.disabled = true;
   elems.btnCapture.disabled = true;
+  elems.btnCapture.textContent = '📷 撮影';
   clearOverlay();
   log('カメラ停止', 'info');
 }
@@ -552,7 +554,12 @@ function detectReferenceObject(tmpCanvas) {
 // =====================================================================
 // 撮影ボタン・ファイル入力
 // =====================================================================
-elems.btnCapture.addEventListener('click', () => {
+elems.btnCapture.addEventListener('click', async () => {
+  // カメラが停止中（撮影済み）なら再撮影のためカメラを再起動
+  if (!state.cameraActive) {
+    await startCamera();
+    return;
+  }
   if (!state.opencvReady) {
     log('OpenCV未準備のため解析不可', 'warn');
     return;
@@ -567,6 +574,16 @@ elems.btnCapture.addEventListener('click', () => {
   canvas.width = vw;
   canvas.height = vh;
   canvas.getContext('2d').drawImage(elems.video, 0, 0, vw, vh);
+
+  // 撮影後にカメラストリームを停止
+  stopCameraStream();
+  elems.video.srcObject = null;
+  elems.videoContainer.style.display = 'none';
+  state.cameraActive = false;
+  elems.btnStopCamera.disabled = true;
+  elems.btnFlipCamera.disabled = true;
+  elems.btnCapture.textContent = '📷 再撮影';
+
   analyzeImage(canvas);
 });
 
