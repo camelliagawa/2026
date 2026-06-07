@@ -248,22 +248,12 @@
         <div class="panel-box">
           <h2>刃先形状</h2>
 
-          <!-- CSV読み込み＋刃渡り表示 -->
-          <div class="control-group">
-            <label>刃渡り曲線CSV</label>
-            <div class="bs-csv-row">
-              <label id="bs-csv-load-lbl" class="btn btn-secondary btn-file btn-sm">📂 CSVを読み込む<input type="file" id="bs-csv-input" accept=".csv,.txt"></label>
-              <span id="bs-csv-fname" class="bs-csv-fname hidden"></span>
-              <button id="bs-csv-rm" class="btn btn-danger btn-sm bs-csv-rm hidden">✕</button>
-            </div>
-            <div class="bs-length-row">
-              刃渡り&nbsp;<span id="bs-curve-length">--</span>&nbsp;mm&nbsp;→&nbsp;<span id="bs-layer-count">--</span>&nbsp;段
-            </div>
-          </div>
-
           <!-- 断面パラメータ（2×2グリッド） -->
           <div class="control-group">
             <label>断面パラメータ</label>
+            <div class="bs-length-row">
+              刃渡り&nbsp;<span id="bs-curve-length">--</span>&nbsp;mm&nbsp;→&nbsp;<span id="bs-layer-count">--</span>&nbsp;段
+            </div>
             <div class="bs-params-grid">
               <div>
                 <span class="bs-param-lbl">z値 (mm)</span>
@@ -320,18 +310,11 @@
               <button class="csv3d-rm btn btn-danger btn-sm hidden" data-slot="0">✕</button>
             </div>
             <div id="csv3d-slot-1" class="csv3d-slot">
-              <div class="csv3d-sbar" style="background:#ff8822"></div>
-              <label class="csv3d-load-lbl btn btn-secondary btn-file btn-sm">📂 CSV 2 を選択<input type="file" data-slot="1" accept=".csv,.txt"></label>
-              <span class="csv3d-fname hidden"></span>
-              <label class="csv3d-vis-lbl hidden check-label"><input type="checkbox" class="csv3d-vis" data-slot="1" checked><span>表示</span></label>
-              <button class="csv3d-rm btn btn-danger btn-sm hidden" data-slot="1">✕</button>
-            </div>
-            <div id="csv3d-slot-2" class="csv3d-slot">
               <div class="csv3d-sbar" style="background:#50ff80"></div>
               <span class="csv3d-load-lbl csv3d-edge-empty">エッジ曲線（未ロード）</span>
               <span class="csv3d-fname hidden"></span>
-              <label class="csv3d-vis-lbl hidden check-label"><input type="checkbox" class="csv3d-vis" data-slot="2" checked><span>表示</span></label>
-              <button class="csv3d-rm btn btn-danger btn-sm hidden" data-slot="2">✕</button>
+              <label class="csv3d-vis-lbl hidden check-label"><input type="checkbox" class="csv3d-vis" data-slot="1" checked><span>表示</span></label>
+              <button class="csv3d-rm btn btn-danger btn-sm hidden" data-slot="1">✕</button>
             </div>
           </div>
           <button id="csv3d-align-to-edge" class="btn btn-secondary btn-sm">📐 刃先形状をエッジ曲線に合わせる</button>

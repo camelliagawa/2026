@@ -1977,13 +1977,11 @@ log('OpenCV.js を読み込み中...', 'info');
   // ---- スロット別カラー定義（slot 0: シアン系 / slot 1: オレンジ系）----
   const COLORS = [
     { line: 0x00e5ff, dot: 0xff4455, arrow: 0x44ff88 },
-    { line: 0xff8822, dot: 0xffdd00, arrow: 0xff66cc },
-    { line: 0x50ff80, dot: 0xffffff, arrow: 0x80ffaa }, // slot 2: エッジ曲線（緑）
+    { line: 0x50ff80, dot: 0xffffff, arrow: 0x80ffaa }, // slot 1: エッジ曲線（緑）
   ];
   const slots = [
     { data: null, name: '', visible: true },
-    { data: null, name: '', visible: true },
-    { data: null, name: 'エッジ曲線', visible: true }, // slot 2: エッジ画像検出曲線専用
+    { data: null, name: 'エッジ曲線', visible: true }, // slot 1: エッジ画像検出曲線専用
   ];
   let viewer = null;
   const arrowsChk = document.getElementById('csv3d-show-arrows');
@@ -2122,7 +2120,7 @@ log('OpenCV.js を読み込み中...', 'info');
     canvas.addEventListener('touchend', () => { td = null; p0 = null; });
 
     // ---- スロット別データグループ（2つ）----
-    const slotGroups = [new THREE.Group(), new THREE.Group(), new THREE.Group()];
+    const slotGroups = [new THREE.Group(), new THREE.Group()];
     slotGroups.forEach(g => scene.add(g));
 
     (function render() {
@@ -2274,7 +2272,6 @@ log('OpenCV.js を読み込み中...', 'info');
     const sa = arrowsChk ? arrowsChk.checked : true;
     buildSlot(0, sa);
     buildSlot(1, sa);
-    buildSlot(2, sa);
   }
 
   function parseCsv(text) {
@@ -2321,7 +2318,7 @@ log('OpenCV.js を読み込み中...', 'info');
     const hasAny = slots.some(s => s.data);
     if (empty) empty.style.display = hasAny ? 'none' : '';
     if (!info) return;
-    const parts = slots.map((s, i) => s.data ? (i < 2 ? `CSV${i+1}: ${s.data.length}点` : `${s.name}: ${s.data.length}点`) : null).filter(Boolean);
+    const parts = slots.map((s, i) => s.data ? (i < 1 ? `CSV1: ${s.data.length}点` : `${s.name}: ${s.data.length}点`) : null).filter(Boolean);
     if (parts.length) { info.textContent = parts.join('　'); info.classList.remove('hidden'); }
     else              { info.classList.add('hidden'); }
   }
@@ -2421,7 +2418,7 @@ log('OpenCV.js を読み込み中...', 'info');
   // ---- 刃先形状をエッジ曲線に合わせて補正 ----
   document.getElementById('csv3d-align-to-edge')?.addEventListener('click', () => {
     const bladeData = slots[0].data;
-    const edgeData  = slots[2].data;
+    const edgeData  = slots[1].data;
     if (!bladeData || !edgeData || bladeData.length < 2 || edgeData.length < 2) {
       log('CSV1（刃先形状）とエッジ曲線の両方が必要です', 'warn');
       return;
@@ -2516,13 +2513,13 @@ log('OpenCV.js を読み込み中...', 'info');
 
   // ---- エッジ曲線専用スロット（slot 2）への読み込み ----
   window.csv3dSetEdgeCurve = function (data) {
-    slots[2].data    = data;
-    slots[2].name    = 'エッジ曲線';
-    slots[2].visible = true;
-    updateSlotUI(2);
+    slots[1].data    = data;
+    slots[1].name    = 'エッジ曲線';
+    slots[1].visible = true;
+    updateSlotUI(1);
     updateInfo();
     const sa = arrowsChk ? arrowsChk.checked : true;
-    openViewer(() => { buildSlot(2, sa); fitAllData(); });
+    openViewer(() => { buildSlot(1, sa); fitAllData(); });
   };
 })();
 
@@ -2540,15 +2537,12 @@ log('OpenCV.js を読み込み中...', 'info');
   const elBsLoad3d     = document.getElementById('bs-load-3d');
   const elBsPreview    = document.getElementById('bs-preview');
   const elBsN          = document.getElementById('bs-n');
-  const elBsCsvInput   = document.getElementById('bs-csv-input');
-  const elBsCsvFname   = document.getElementById('bs-csv-fname');
-  const elBsCsvRm      = document.getElementById('bs-csv-rm');
   const elBsXzCanvas    = document.getElementById('bs-xz-canvas');
   const elBsScaleEqual  = document.getElementById('bs-scale-equal');
   const elBsScaleAuto   = document.getElementById('bs-scale-auto');
 
   const DEFAULT_THETA = 7.1;
-  let bsCsvLengthMm = null;
+
   let bsEqualScale  = true;
   let thetaLArr = [20, 15, 10, 5, 3];
   let thetaRArr = [20, 15, 10, 5, 3];
@@ -2641,7 +2635,6 @@ log('OpenCV.js を読み込み中...', 'info');
   }
 
   function getBladeLengthMm() {
-    if (bsCsvLengthMm !== null) return bsCsvLengthMm;
     return calcCurveLengthMm(state.lastBladeCurvePts);
   }
 
@@ -2820,35 +2813,6 @@ log('OpenCV.js を読み込み中...', 'info');
     return rows;
   }
 
-  // ---- CSVファイル読み込み ----
-  elBsCsvInput?.addEventListener('change', e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = ev => {
-      const rows = parseBsCsv(ev.target.result);
-      const len  = calcLengthFromCsvRows(rows);
-      if (len === null) {
-        log('刃渡り曲線CSVを解析できません（x y z rx ry rz の6列が必要）', 'warn');
-        return;
-      }
-      bsCsvLengthMm = len;
-      elBsCsvFname.textContent = file.name;
-      elBsCsvFname.classList.remove('hidden');
-      elBsCsvRm.classList.remove('hidden');
-      refreshDisplay();
-    };
-    reader.readAsText(file);
-  });
-
-  // ---- CSV クリア ----
-  elBsCsvRm?.addEventListener('click', () => {
-    bsCsvLengthMm = null;
-    if (elBsCsvInput) elBsCsvInput.value = '';
-    elBsCsvFname.classList.add('hidden');
-    elBsCsvRm.classList.add('hidden');
-    refreshDisplay();
-  });
 
   elBsZ?.addEventListener('input', refreshDisplay);
 
