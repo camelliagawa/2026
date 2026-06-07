@@ -224,7 +224,7 @@ window.onOpenCvReady = () => {
     initCameraList();
     loadImageBlob().then(blob => {
       if (!blob) return;
-      elems.btnReloadLast.classList.remove('hidden');
+      elems.btnReloadLast.disabled = false;
       elems.btnDownloadSaved.classList.remove('hidden');
       log('前回の画像を自動読み込みしました', 'info');
       elems.savedImageHint.textContent = '前回の画像を自動読み込みしました';
@@ -739,7 +739,7 @@ async function handleFileInput(file) {
   saveCanvasToIDB(canvas);
   elems.savedImageHint.textContent = '次回起動時に自動読み込みします';
   elems.savedImageHint.classList.remove('hidden');
-  elems.btnReloadLast.classList.remove('hidden');
+  elems.btnReloadLast.disabled = false;
   elems.btnDownloadSaved.classList.remove('hidden');
   if (!state.opencvReady) {
     log('OpenCV未準備のため解析不可。少し待ってから再試行してください。', 'warn');
