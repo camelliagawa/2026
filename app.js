@@ -89,6 +89,7 @@ const elems = {
   resultProcessedImageBox: $('processed-image-box'),
   edgeImageSize:           $('edge-image-size'),
   btnBladeCurve:      $('btn-blade-curve'),
+  btnPreviewCurve3d:  $('btn-preview-curve-3d'),
   bladeCurveStatus:   $('blade-curve-status'),
   bladeDotInterval:       $('blade-dot-interval'),
   videoContainer:         $('video-container'),
@@ -1143,7 +1144,9 @@ function exportCsv() {
 // 刃渡り曲線抽出・描画・CSV出力
 // =====================================================================
 function updateBladeCurveBtn() {
-  elems.btnBladeCurve.disabled = !state.lastBladeCurvePts;
+  const hasCurve = !!state.lastBladeCurvePts;
+  elems.btnBladeCurve.disabled     = !hasCurve;
+  elems.btnPreviewCurve3d.disabled = !hasCurve;
 }
 
 function detectJuncBin(wSmoothed, bottomEdge, maxBin, tipSide, BINS) {
@@ -2000,6 +2003,18 @@ elems.bladeXConst?.addEventListener('input', () => {
   if (!pts || pts.length === 0) return;
   const { intervalMm, xConst } = getBladeParams();
   drawBladeCurvePreview(computeBlade6ColData(pts, intervalMm, xConst));
+});
+
+elems.btnPreviewCurve3d.addEventListener('click', () => {
+  const pts = state.lastBladeCurvePts;
+  if (!pts || pts.length === 0) return;
+  const { intervalMm, xConst } = getBladeParams();
+  const data = computeBlade6ColData(pts, intervalMm, xConst);
+  if (typeof window.csv3dLoadData === 'function') {
+    window.csv3dLoadData(0, data, '刃渡り曲線');
+  }
+  const tab3d = document.querySelector('.tab-btn[data-tab="csv3d"]');
+  if (tab3d) tab3d.click();
 });
 
 elems.btnBladeCurve.addEventListener('click', () => {
