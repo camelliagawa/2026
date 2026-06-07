@@ -603,6 +603,7 @@ select:focus, input:focus {
 #calib-method-bar {
   display: flex;
   gap: 6px;
+  margin-top: 10px;
 }
 
 .btn-calib-method {

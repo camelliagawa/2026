@@ -39,11 +39,7 @@
       <!-- 撮影アクションバー（モバイル：常時表示 / デスクトップ：左列上段） -->
       <div id="action-bar">
         <div id="opencv-status" class="opencv-status opencv-loading">OpenCV 読み込み中...</div>
-        <p class="hint-text" id="hint-text">包丁とクレジットカード（または500円硬貨）を同じ画面に収めて撮影してください。カードを自動検出してスケールを校正します。</p>
-        <div id="calib-method-bar">
-          <button id="btn-calib-card" class="btn btn-sm btn-calib-method active">カード</button>
-          <button id="btn-calib-a4" class="btn btn-sm btn-calib-method">A4用紙</button>
-        </div>
+        <p class="hint-text" id="hint-text">A4用紙の上に包丁を置き、用紙全体が映るように撮影してください。長辺（297mm）を基準に自動校正します。</p>
         <button id="btn-capture" class="btn btn-capture-main" disabled>📷 撮影</button>
         <div class="or-divider"><span>または</span></div>
         <label id="file-input-label" class="btn btn-secondary btn-file">
@@ -165,6 +161,10 @@
               </label>
             </div>
           </details>
+          <div id="calib-method-bar">
+            <button id="btn-calib-a4" class="btn btn-sm btn-calib-method active">A4用紙</button>
+            <button id="btn-calib-card" class="btn btn-sm btn-calib-method">カード</button>
+          </div>
           <div class="calib-card-row" id="edge-calib-row">
             <span class="step-label">①</span>
             <button id="btn-edge-card-calib" class="btn btn-secondary btn-sm">📐 短辺3点でカード校正</button>
