@@ -1224,6 +1224,34 @@ details[open] .advanced-summary::before {
   flex-wrap: wrap;
 }
 
+.btn-export-final {
+  display: block;
+  width: 100%;
+  margin-top: 14px;
+  padding: 14px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #00c853, #00897b);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  letter-spacing: 0.04em;
+  box-shadow: 0 3px 14px rgba(0, 200, 100, 0.35);
+  transition: opacity 0.2s, box-shadow 0.2s;
+}
+
+.btn-export-final:not(:disabled):hover {
+  opacity: 0.88;
+  box-shadow: 0 4px 18px rgba(0, 200, 100, 0.55);
+}
+
+.btn-export-final:disabled {
+  background: #1e3a2a;
+  color: #3d6650;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
 @media (min-width: 768px) {
   #btn-show-3d {
     display: block;
