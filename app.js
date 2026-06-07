@@ -26,7 +26,6 @@ const state = {
   calibFromAutoLoad: false,      // 起動時の前回画像自動読み込みによる校正かどうか
   history: [],
   lastCanvas: null,
-  lastBladeResult: null,
   lastBladeCurvePts: null,
   edgeCanvasImageData: null,
   manualBlade: { step: 0, ago: null, kissaki: null, dragging: null },
@@ -891,8 +890,6 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
         bladeWidthMm  = bladeWidthPx  / state.calibPixelsPerMm;
       }
 
-      state.lastBladeResult = bladeResult;
-
       updateResults({ bladeOnlyPx, bladeOnlyMm, angle: angleRaw });
 
       drawAnnotatedResult(srcCanvas);
@@ -970,8 +967,8 @@ function estimateBladeLength(contour, rect) {
     });
   }
 
-  const minX = Math.min(...pts.map(p => p.x));
-  const maxX = Math.max(...pts.map(p => p.x));
+  let minX = Infinity, maxX = -Infinity;
+  for (const p of pts) { if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x; }
   const range = maxX - minX;
   if (range < 1) return null;
 
@@ -1137,7 +1134,7 @@ function detectJuncBin(wSmoothed, bottomEdge, maxBin, tipSide, BINS) {
       if (v !== Infinity && v !== -Infinity) { if (v < handleY) handleY = v; handleN++; }
     }
   }
-  if (handleN === 0) return tipSide === 'right' ? bladeMaxBin : bladeMaxBin;
+  if (handleN === 0) return bladeMaxBin;
 
   // Cutting edge Y at blade heel — the reference depth of the blade cutting edge.
   const heelY = bottomEdge[bladeMaxBin];
@@ -1618,21 +1615,24 @@ function handleEdgeCardCalibClick(e) {
   const canvas = elems.resultProcessedCanvas;
   const { x, y } = edgeCanvasCoords(e);
   const snapped = snapToEdge(canvas, x, y, 30);
+  const refreshCanvas = () => {
+    canvas.getContext('2d').putImageData(state.edgeCanvasImageData, 0, 0);
+    drawEdgeCardCalibOverlay();
+  };
+  const refEdge = state.calibMode === 'a4' ? 'A4用紙の短辺' : 'カード短辺';
 
   if (ec.step === 1) {
     ec.pts = [snapped];
     ec.step = 2;
-    canvas.getContext('2d').putImageData(state.edgeCanvasImageData, 0, 0);
-    drawEdgeCardCalibOverlay();
-    updateEdgeCalibHint(`② 同じ${state.calibMode === 'a4' ? 'A4用紙の短辺' : 'カード短辺'}の2点目をタップ →`);
+    refreshCanvas();
+    updateEdgeCalibHint(`② 同じ${refEdge}の2点目をタップ →`);
     return;
   }
 
   if (ec.step === 2) {
     ec.pts.push(snapped);
     ec.step = 3;
-    canvas.getContext('2d').putImageData(state.edgeCanvasImageData, 0, 0);
-    drawEdgeCardCalibOverlay();
+    refreshCanvas();
     updateEdgeCalibHint('③ 反対側の短辺をタップ →');
     return;
   }
@@ -1875,7 +1875,6 @@ function resetApp() {
   state.edgeCanvasImageData = null;
   state.calibPixelsPerMm  = null;
   state.lastCanvas        = null;
-  state.lastBladeResult   = null;
   state.lastBladeCurvePts = null;
   state.history           = [];
 
@@ -2084,7 +2083,7 @@ log('OpenCV.js を読み込み中...', 'info');
         o.theta -= dx * 0.01;
         o.phi = Math.max(0.05, Math.min(Math.PI - 0.05, o.phi + dy * 0.01));
         place();
-      } else if (e.touches.length === 2 && p0 != null) {
+      } else if (e.touches.length === 2 && p0 !== null) {
         const d = Math.hypot(
           e.touches[0].clientX - e.touches[1].clientX,
           e.touches[0].clientY - e.touches[1].clientY
@@ -2135,17 +2134,19 @@ log('OpenCV.js を読み込み中...', 'info');
 
   function fitView(data) {
     if (!viewer || !data || !data.length) return;
-    const xs = data.map(d => d.x), ys = data.map(d => d.y), zs = data.map(d => d.z);
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+    let minZ = Infinity, maxZ = -Infinity;
+    for (const d of data) {
+      if (d.x < minX) minX = d.x; if (d.x > maxX) maxX = d.x;
+      if (d.y < minY) minY = d.y; if (d.y > maxY) maxY = d.y;
+      if (d.z < minZ) minZ = d.z; if (d.z > maxZ) maxZ = d.z;
+    }
     const { o, place } = viewer;
-    o.tx = (Math.min(...xs) + Math.max(...xs)) / 2;
-    o.ty = (Math.min(...ys) + Math.max(...ys)) / 2;
-    o.tz = (Math.min(...zs) + Math.max(...zs)) / 2;
-    const span = Math.max(
-      Math.max(...xs) - Math.min(...xs),
-      Math.max(...ys) - Math.min(...ys),
-      Math.max(...zs) - Math.min(...zs),
-      0.5
-    );
+    o.tx = (minX + maxX) / 2;
+    o.ty = (minY + maxY) / 2;
+    o.tz = (minZ + maxZ) / 2;
+    const span = Math.max(maxX - minX, maxY - minY, maxZ - minZ, 0.5);
     o.r = span * 2.5;
     place();
     viewer.setAxisLen(span * 0.18);
@@ -2562,17 +2563,13 @@ log('OpenCV.js を読み込み中...', 'info');
         `</div>`
       ).join('');
 
-    elBsThetaRows.querySelectorAll('.bs-tl').forEach(el =>
-      el.addEventListener('input', e => {
-        thetaLArr[+e.target.dataset.seg] = parseFloat(e.target.value) || DEFAULT_THETA;
-        refreshDisplay();
-      })
-    );
-    elBsThetaRows.querySelectorAll('.bs-tr').forEach(el =>
-      el.addEventListener('input', e => {
-        thetaRArr[+e.target.dataset.seg] = parseFloat(e.target.value) || DEFAULT_THETA;
-        refreshDisplay();
-      })
+    [{ cls: '.bs-tl', arr: thetaLArr }, { cls: '.bs-tr', arr: thetaRArr }].forEach(({ cls, arr }) =>
+      elBsThetaRows.querySelectorAll(cls).forEach(el =>
+        el.addEventListener('input', e => {
+          arr[+e.target.dataset.seg] = parseFloat(e.target.value) || DEFAULT_THETA;
+          refreshDisplay();
+        })
+      )
     );
     elBsThetaRows.querySelectorAll('.bs-spin-btn').forEach(btn =>
       btn.addEventListener('click', () => {
