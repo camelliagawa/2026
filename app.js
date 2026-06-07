@@ -4,6 +4,15 @@
 // 校正の基準値として全コードで統一使用する
 const CARD_LONG_MM = 85.6;
 
+// A4用紙寸法（ISO 216規格: 210 × 297 mm）
+const A4_LONG_MM  = 297;
+const A4_SHORT_MM = 210;
+
+const HINT_TEXTS = {
+  auto: '包丁とクレジットカード（または500円硬貨）を同じ画面に収めて撮影してください。カードを自動検出してスケールを校正します。',
+  a4:   'A4用紙の上に包丁を置き、用紙全体が映るように撮影してください。長辺（297mm）を基準に自動校正します。',
+};
+
 // =====================================================================
 // 状態管理
 // =====================================================================
@@ -12,6 +21,7 @@ const state = {
   cameraActive: false,
   stream: null,
   facingMode: 'environment',     // 'environment'=背面 / 'user'=前面
+  calibMode: 'auto',             // 'auto'=カード/硬貨, 'a4'=A4用紙
   calibPixelsPerMm: null,        // px/mm
   history: [],
   lastCanvas: null,
@@ -103,6 +113,9 @@ const elems = {
   btnReloadLast:           $('btn-reload-last'),
   btnDownloadSaved:        $('btn-download-saved'),
   dragOverlay:             $('drag-overlay'),
+  btnCalibCard:            $('btn-calib-card'),
+  btnCalibA4:              $('btn-calib-a4'),
+  hintText:                $('hint-text'),
 };
 
 
@@ -267,6 +280,19 @@ async function initCameraList() {
     log(`カメラアクセスエラー: ${err.message}`, 'error');
   }
 }
+
+// =====================================================================
+// 校正モード切替
+// =====================================================================
+function setCalibMode(mode) {
+  state.calibMode = mode;
+  elems.btnCalibCard.classList.toggle('active', mode === 'auto');
+  elems.btnCalibA4.classList.toggle('active', mode === 'a4');
+  if (elems.hintText) elems.hintText.textContent = HINT_TEXTS[mode];
+}
+
+elems.btnCalibCard.addEventListener('click', () => setCalibMode('auto'));
+elems.btnCalibA4.addEventListener('click',   () => setCalibMode('a4'));
 
 // =====================================================================
 // カメラ開始・停止
@@ -436,13 +462,18 @@ function analyzeImage(canvas) {
   const calRef = detectReferenceObject(canvas);
   if (calRef) {
     state.calibPixelsPerMm = calRef.pixelsPerMm;
-    const typeName = calRef.type === 'card' ? `クレジットカード (${CARD_LONG_MM}mm)` : '500円硬貨 (26.5mm)';
+    const typeName = calRef.type === 'card' ? `クレジットカード (${CARD_LONG_MM}mm)`
+                   : calRef.type === 'a4'   ? `A4用紙 (${A4_LONG_MM}mm)`
+                   : '500円硬貨 (26.5mm)';
     elems.calibStatus.textContent = `自動校正完了: ${state.calibPixelsPerMm.toFixed(2)} px/mm`;
     elems.resCalib.textContent     = state.calibPixelsPerMm.toFixed(2);
     log(`自動キャリブレーション [${typeName}]: ${state.calibPixelsPerMm.toFixed(2)} px/mm`, 'info');
     updateBladeCurveBtn();
   } else if (!state.calibPixelsPerMm) {
-    log('クレジットカード/コインが検出できませんでした。カードが画面に収まっているか確認してください。寸法はpx表示になります。', 'warn');
+    const failMsg = state.calibMode === 'a4'
+      ? 'A4用紙が検出できませんでした。用紙全体が映っているか確認してください。寸法はpx表示になります。'
+      : 'クレジットカード/コインが検出できませんでした。カードが画面に収まっているか確認してください。寸法はpx表示になります。';
+    log(failMsg, 'warn');
   }
 
   detectKnifeOnCanvas(canvas, true);
@@ -470,6 +501,44 @@ function detectReferenceObject(tmpCanvas) {
     cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
     const imgArea = tmpCanvas.width * tmpCanvas.height;
+
+    // ── A4用紙モード ──────────────────────────────────────────────────
+    if (state.calibMode === 'a4') {
+      let bestA4 = null;
+      for (let i = 0; i < contours.size(); i++) {
+        const cnt = contours.get(i);
+        const area = cv.contourArea(cnt);
+        if (area < imgArea * 0.05 || area > imgArea * 0.95) { cnt.delete(); continue; }
+        const peri = cv.arcLength(cnt, true);
+        if (peri < 50) { cnt.delete(); continue; }
+        const rect = cv.minAreaRect(cnt);
+        const rw = Math.max(rect.size.width, rect.size.height);
+        const rh = Math.min(rect.size.width, rect.size.height);
+        if (rh < 20) { cnt.delete(); continue; }
+        const aspect = rw / rh;
+        // A4: 297/210 ≈ 1.414 、許容範囲 1.25–1.60
+        if (aspect >= 1.25 && aspect <= 1.60) {
+          const approx = new cv.Mat();
+          cv.approxPolyDP(cnt, approx, 0.03 * peri, true);
+          const corners = approx.rows;
+          approx.delete();
+          if (corners >= 4 && corners <= 20) {
+            if (!bestA4 || area > bestA4.area) {
+              bestA4 = {
+                type: 'a4',
+                area,
+                pixelsPerMm: rw / A4_LONG_MM,
+                pts: cv.RotatedRect.points(rect),
+              };
+            }
+          }
+        }
+        cnt.delete();
+      }
+      return bestA4;
+    }
+
+    // ── カード / 硬貨モード ────────────────────────────────────────────
     let bestCard = null;
     let bestCoin = null;
 
