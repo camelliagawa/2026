@@ -23,6 +23,7 @@ const state = {
   facingMode: 'environment',     // 'environment'=背面 / 'user'=前面
   calibMode: 'a4',               // 'auto'=カード, 'a4'=A4用紙（デフォルト）
   calibPixelsPerMm: null,        // px/mm
+  calibFromAutoLoad: false,      // 起動時の前回画像自動読み込みによる校正かどうか
   history: [],
   lastCanvas: null,
   lastRectPts: null,
@@ -227,6 +228,7 @@ window.onOpenCvReady = () => {
       log('前回の画像を自動読み込みしました', 'info');
       elems.savedImageHint.textContent = '前回の画像を自動読み込みしました';
       elems.savedImageHint.classList.remove('hidden');
+      state.calibFromAutoLoad = true;
       applyBlobToApp(blob);
     });
   }
@@ -465,9 +467,11 @@ function analyzeImage(canvas) {
     const typeName = calRef.type === 'card' ? `クレジットカード (${CARD_LONG_MM}mm)`
                    : calRef.type === 'a4'   ? `A4用紙 (${A4_LONG_MM}mm)`
                    : '500円硬貨 (26.5mm)';
-    elems.calibStatus.textContent = `自動校正完了: ${state.calibPixelsPerMm.toFixed(2)} px/mm`;
+    const calibNote = state.calibFromAutoLoad ? '（前回の画像から自動読込）' : '';
+    elems.calibStatus.textContent = `自動校正完了 ${calibNote}: ${state.calibPixelsPerMm.toFixed(2)} px/mm`;
     elems.resCalib.textContent     = state.calibPixelsPerMm.toFixed(2);
     log(`自動キャリブレーション [${typeName}]: ${state.calibPixelsPerMm.toFixed(2)} px/mm`, 'info');
+    state.calibFromAutoLoad = false;
     updateBladeCurveBtn();
   } else if (!state.calibPixelsPerMm) {
     const failMsg = state.calibMode === 'a4'
