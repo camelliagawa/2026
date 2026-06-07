@@ -26,9 +26,7 @@ const state = {
   calibFromAutoLoad: false,      // 起動時の前回画像自動読み込みによる校正かどうか
   history: [],
   lastCanvas: null,
-  lastRectPts: null,
   lastBladeResult: null,
-  lastKnifeMetrics: null,
   lastBladeCurvePts: null,
   edgeCanvasImageData: null,
   manualBlade: { step: 0, ago: null, kissaki: null, dragging: null },
@@ -96,7 +94,6 @@ const elems = {
   btnClearHistory:    $('btn-clear-history'),
   btnExportCsv:       $('btn-export-csv'),
   logOutput:          $('log-output'),
-  confirmSummary:     $('confirm-summary'),
   savedImageHint:          $('saved-image-hint'),
   btnReloadLast:           $('btn-reload-last'),
   btnDownloadSaved:        $('btn-download-saved'),
@@ -877,9 +874,7 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
     clearOverlay();
 
     if (bestContour && bestRect) {
-      const rectPts = cv.RotatedRect.points(bestRect.rect);
-
-      const totalLengthPx = bestRect.w;   // 刃＋柄の全長
+      const totalLengthPx = bestRect.w;
       const bladeWidthPx  = bestRect.h;
       const angleRaw      = bestRect.rect.angle;
 
@@ -896,19 +891,9 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
         bladeWidthMm  = bladeWidthPx  / state.calibPixelsPerMm;
       }
 
-      const bbox = cv.boundingRect(bestContour);
-
-      state.lastRectPts = rectPts;
       state.lastBladeResult = bladeResult;
-      state.lastKnifeMetrics = { bladeOnlyPx, totalLengthPx, bladeWidthPx, bbox, angle: angleRaw };
 
-      updateResults({
-        status: '包丁検出',
-        bladeOnlyPx,   bladeOnlyMm,
-        totalLengthPx, totalLengthMm,
-        bladeWidthPx,  bladeWidthMm,
-        bbox, angle: angleRaw,
-      });
+      updateResults({ bladeOnlyPx, bladeOnlyMm, angle: angleRaw });
 
       drawAnnotatedResult(srcCanvas);
 
@@ -918,8 +903,6 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
           bladeLength: bladeOnlyMm ?? bladeOnlyPx,
           bladeWidth:  bladeWidthMm ?? bladeWidthPx,
           angle: angleRaw,
-          bladeOnlyMm,
-          bladeOnlyPx,
         });
         const resultTabBtn = document.querySelector('.tab-btn[data-tab="result"]');
         if (resultTabBtn && window.getComputedStyle(document.getElementById('tab-nav')).display !== 'none') {
@@ -1052,12 +1035,8 @@ function setVal(valElem, unitElem, mm, px, unitLabel = 'mm') {
   }
 }
 
-function updateResults({ status, bladeOnlyPx, bladeOnlyMm, totalLengthPx, totalLengthMm,
-                         bladeWidthPx, bladeWidthMm, bbox, angle }) {
-  const calib = state.calibPixelsPerMm;
-
-  setVal(elems.resBladeLength,  elems.unitBladeLength,  bladeOnlyMm,   bladeOnlyPx);
-
+function updateResults({ bladeOnlyPx, bladeOnlyMm, angle }) {
+  setVal(elems.resBladeLength, elems.unitBladeLength, bladeOnlyMm, bladeOnlyPx);
   elems.resAngle.textContent = angle !== undefined ? angle.toFixed(1) : '--';
 }
 
@@ -1896,9 +1875,7 @@ function resetApp() {
   state.edgeCanvasImageData = null;
   state.calibPixelsPerMm  = null;
   state.lastCanvas        = null;
-  state.lastRectPts       = null;
   state.lastBladeResult   = null;
-  state.lastKnifeMetrics  = null;
   state.lastBladeCurvePts = null;
   state.history           = [];
 
@@ -2609,32 +2586,6 @@ log('OpenCV.js を読み込み中...', 'info');
         refreshDisplay();
       })
     );
-  }
-
-  function parseBsCsv(text) {
-    const rows = [];
-    for (const line of text.split('\n')) {
-      const t = line.trim();
-      if (!t || t.startsWith('#')) continue;
-      const cols = t.split(/[\s,;]+/);
-      if (cols.length < 6) continue;
-      const n = cols.slice(0, 6).map(Number);
-      if (n.some(isNaN)) continue;
-      rows.push({ x: n[0], y: n[1], z: n[2] });
-    }
-    return rows;
-  }
-
-  function calcLengthFromCsvRows(rows) {
-    if (!rows || rows.length < 2) return null;
-    let total = 0;
-    for (let i = 1; i < rows.length; i++) {
-      const dx = rows[i].x - rows[i-1].x;
-      const dy = rows[i].y - rows[i-1].y;
-      const dz = rows[i].z - rows[i-1].z;
-      total += Math.sqrt(dx*dx + dy*dy + dz*dz);
-    }
-    return total;
   }
 
   function getBladeLengthMm() {
