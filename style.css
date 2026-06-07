@@ -1146,6 +1146,7 @@ details[open] .advanced-summary::before {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  margin-bottom: 8px;
 }
 
 .csv3d-slot {
