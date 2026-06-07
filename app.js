@@ -30,7 +30,6 @@ const state = {
   lastBladeResult: null,
   lastKnifeMetrics: null,
   lastBladeCurvePts: null,
-  bladeEqualScale: true,
   edgeCanvasImageData: null,
   manualBlade: { step: 0, ago: null, kissaki: null, dragging: null },
   // step: 0=inactive 1=awaiting ago 2=awaiting kissaki 3=both placed (drag enabled)
@@ -83,7 +82,6 @@ const elems = {
   resultProcessedCanvas:   $('result-processed-canvas'),
   resultProcessedImageBox: $('processed-image-box'),
   edgeImageSize:           $('edge-image-size'),
-  btnBladeCurve:      $('btn-blade-curve'),
   btnPreviewCurve3d:  $('btn-preview-curve-3d'),
   bladeCurveStatus:   $('blade-curve-status'),
   bladeDotInterval:       $('blade-dot-interval'),
@@ -99,13 +97,6 @@ const elems = {
   btnExportCsv:       $('btn-export-csv'),
   logOutput:          $('log-output'),
   confirmSummary:     $('confirm-summary'),
-  bladePreviewSection:     $('blade-preview-section'),
-  bladePreviewCanvas:      $('blade-preview-canvas'),
-  bladePreviewInfo:        $('blade-preview-info'),
-  bladeXConst:             $('blade-x-const'),
-  btnBladePreviewOk:       $('btn-blade-preview-ok'),
-  btnScaleEqual:           $('btn-scale-equal'),
-  btnScaleAuto:            $('btn-scale-auto'),
   savedImageHint:          $('saved-image-hint'),
   btnReloadLast:           $('btn-reload-last'),
   btnDownloadSaved:        $('btn-download-saved'),
@@ -1130,7 +1121,6 @@ function exportCsv() {
 // =====================================================================
 function updateBladeCurveBtn() {
   const hasCurve = !!state.lastBladeCurvePts;
-  elems.btnBladeCurve.disabled     = !hasCurve;
   elems.btnPreviewCurve3d.disabled = !hasCurve;
 }
 
@@ -1824,7 +1814,7 @@ function drawBladeEdgeCurve(pts) {
 function getBladeParams() {
   return {
     intervalMm: parseFloat(elems.bladeDotInterval?.value) || 10,
-    xConst: parseFloat(elems.bladeXConst?.value) || 0,
+    xConst: 0,
   };
 }
 
@@ -1852,143 +1842,6 @@ function computeBlade6ColData(pts, intervalMm, xConst) {
   });
 }
 
-function drawBladeCurvePreview(data) {
-  const canvas = elems.bladePreviewCanvas;
-  // 表示幅に合わせてcanvasの解像度を設定（CSS width:100% に追従）
-  const W = canvas.offsetWidth || 300;
-  const H = Math.round(W * 190 / 300);
-  canvas.width  = W;
-  canvas.height = H;
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, W, H);
-  ctx.fillStyle = '#0d1b2e';
-  ctx.fillRect(0, 0, W, H);
-  if (data.length < 2) return;
-
-  const mg = { left: 46, right: 12, top: 14, bottom: 32 };
-  const pw = W - mg.left - mg.right;
-  const ph = H - mg.top - mg.bottom;
-
-  const yMin = data[0].y, yMax = data[data.length - 1].y;
-  const zVals = data.map(d => d.z);
-  const zMin = Math.min(...zVals), zMax = Math.max(...zVals);
-  const zPad = (zMax - zMin) * 0.15 || 0.5;
-  const yRange = yMax - yMin || 1;
-  const zRangePadded = (zMax - zMin + zPad * 2) || 1;
-
-  let cx, cy;
-  if (state.bladeEqualScale) {
-    const pxPerMm = Math.min(pw / yRange, ph / zRangePadded);
-    const offY = (pw - yRange * pxPerMm) / 2;
-    const offZ = (ph - zRangePadded * pxPerMm) / 2;
-    cx = y => mg.left + offY + (y - yMin) * pxPerMm;
-    cy = z => mg.top + offZ + (zMax + zPad - z) * pxPerMm;
-  } else {
-    cx = y => mg.left + (y - yMin) / yRange * pw;
-    cy = z => mg.top + (1 - (z - (zMin - zPad)) / zRangePadded) * ph;
-  }
-
-  ctx.strokeStyle = '#1e3050';
-  ctx.lineWidth = 1;
-  for (let i = 0; i <= 4; i++) {
-    const gridY = mg.top + ph / 4 * i;
-    ctx.beginPath(); ctx.moveTo(mg.left, gridY); ctx.lineTo(mg.left + pw, gridY); ctx.stroke();
-  }
-
-  ctx.strokeStyle = '#3a5070';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(mg.left, mg.top); ctx.lineTo(mg.left, mg.top + ph);
-  ctx.lineTo(mg.left + pw, mg.top + ph);
-  ctx.stroke();
-
-  ctx.strokeStyle = '#00e5ff';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  data.forEach((d, i) => {
-    i === 0 ? ctx.moveTo(cx(d.y), cy(d.z)) : ctx.lineTo(cx(d.y), cy(d.z));
-  });
-  ctx.stroke();
-
-  ctx.fillStyle = '#ff4455';
-  data.forEach(d => {
-    ctx.beginPath();
-    ctx.arc(cx(d.y), cy(d.z), 2.5, 0, Math.PI * 2);
-    ctx.fill();
-  });
-
-  ctx.fillStyle = '#7090a0';
-  ctx.font = '10px sans-serif';
-  ctx.textAlign = 'left';
-  ctx.fillText(`y ${yMin.toFixed(0)}`, mg.left, H - 4);
-  ctx.textAlign = 'right';
-  ctx.fillText(`${yMax.toFixed(0)} mm`, mg.left + pw, H - 4);
-  ctx.save();
-  ctx.translate(10, mg.top + ph / 2);
-  ctx.rotate(-Math.PI / 2);
-  ctx.textAlign = 'center';
-  ctx.fillText('z (mm)', 0, 0);
-  ctx.restore();
-
-  ctx.fillStyle = '#556677';
-  ctx.textAlign = 'right';
-  ctx.font = '9px sans-serif';
-  ctx.fillText(`${zMin.toFixed(1)}`, mg.left - 2, cy(zMin));
-  ctx.fillText(`${zMax.toFixed(1)}`, mg.left - 2, cy(zMax));
-
-  if (elems.bladePreviewInfo) {
-    elems.bladePreviewInfo.textContent =
-      `${data.length}点  y: ${yMin.toFixed(1)}〜${yMax.toFixed(1)} mm  z: ${zMin.toFixed(3)}〜${zMax.toFixed(3)} mm`;
-  }
-}
-
-function showBladeCurvePreview(pts) {
-  const { intervalMm, xConst } = getBladeParams();
-  drawBladeCurvePreview(computeBlade6ColData(pts, intervalMm, xConst));
-  elems.bladePreviewSection.classList.remove('hidden');
-  elems.bladePreviewSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-}
-
-function exportBlade6ColCsv(pts) {
-  const { intervalMm, xConst } = getBladeParams();
-  const data = computeBlade6ColData(pts, intervalMm, xConst);
-  const rows = data.map(d =>
-    [d.x, d.y, d.z, d.rx, d.ry, d.rz].map(v => v.toFixed(5)).join(',')
-  );
-  const csv = ['x,y,z,rx,ry,rz', ...rows].join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `blade-6col-${Date.now()}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-  log(`刃渡り曲線CSV出力(6列): ${data.length}点 (${intervalMm}mm間隔, x=${xConst})`, 'info');
-}
-
-elems.btnBladePreviewOk.addEventListener('click', () => {
-  exportBlade6ColCsv(state.lastBladeCurvePts);
-});
-
-function setBladeScale(equal) {
-  state.bladeEqualScale = equal;
-  elems.btnScaleEqual?.classList.toggle('scale-btn-active', equal);
-  elems.btnScaleAuto?.classList.toggle('scale-btn-active', !equal);
-  const pts = state.lastBladeCurvePts;
-  if (!pts || pts.length === 0) return;
-  const { intervalMm, xConst } = getBladeParams();
-  drawBladeCurvePreview(computeBlade6ColData(pts, intervalMm, xConst));
-}
-
-elems.btnScaleEqual?.addEventListener('click', () => setBladeScale(true));
-elems.btnScaleAuto?.addEventListener('click', () => setBladeScale(false));
-
-elems.bladeXConst?.addEventListener('input', () => {
-  const pts = state.lastBladeCurvePts;
-  if (!pts || pts.length === 0) return;
-  const { intervalMm, xConst } = getBladeParams();
-  drawBladeCurvePreview(computeBlade6ColData(pts, intervalMm, xConst));
-});
 
 elems.btnPreviewCurve3d.addEventListener('click', () => {
   const pts = state.lastBladeCurvePts;
@@ -2002,29 +1855,12 @@ elems.btnPreviewCurve3d.addEventListener('click', () => {
   if (tab3d) tab3d.click();
 });
 
-elems.btnBladeCurve.addEventListener('click', () => {
-  const pts = state.lastBladeCurvePts;
-  if (!pts || pts.length === 0) {
-    log('先にエッジ画像でアゴ・切先を手動指定してください', 'warn');
-    if (elems.bladeCurveStatus) {
-      elems.bladeCurveStatus.textContent = '⚠ 曲線未指定';
-      elems.bladeCurveStatus.classList.remove('hidden');
-    }
-    return;
-  }
-  showBladeCurvePreview(pts);
-});
-
 elems.bladeDotInterval?.addEventListener('input', () => {
   if (!state.lastBladeCurvePts || !state.lastCanvas) return;
   drawAnnotatedResult(state.lastCanvas);
   drawBladeEdgeCurve(state.lastBladeCurvePts);
   if (elems.bladeCurveStatus) {
     elems.bladeCurveStatus.textContent = `✓ 刃渡り曲線描画済み (${bladeDotCount(state.lastBladeCurvePts)}点)`;
-  }
-  if (!elems.bladePreviewSection.classList.contains('hidden')) {
-    const { intervalMm, xConst } = getBladeParams();
-    drawBladeCurvePreview(computeBlade6ColData(state.lastBladeCurvePts, intervalMm, xConst));
   }
 });
 
@@ -2088,7 +1924,6 @@ function resetApp() {
   elems.resultImageBox.classList.add('hidden');
   elems.resultProcessedImageBox.classList.add('hidden');
   elems.bladeCurveStatus.classList.add('hidden');
-  elems.bladePreviewSection.classList.add('hidden');
   updateBladeCurveBtn();
 }
 
