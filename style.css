@@ -599,6 +599,30 @@ select:focus, input:focus {
   display: none;
 }
 
+/* ======= Calibration Method Selector ======= */
+#calib-method-bar {
+  display: flex;
+  gap: 6px;
+}
+
+.btn-calib-method {
+  flex: 1;
+  background: #1a1a2e;
+  color: #a0a0b0;
+  border: 1px solid #333;
+}
+
+.btn-calib-method.active {
+  background: #1e3a5f;
+  color: #90c0ff;
+  border-color: #4a7acc;
+}
+
+.btn-calib-method:hover:not(:disabled):not(.active) {
+  background: #1a2a40;
+  border-color: #4a7acc55;
+}
+
 /* ======= Main Capture Button ======= */
 .btn-capture-main {
   background: #e94560;
