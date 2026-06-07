@@ -74,12 +74,7 @@ const elems = {
   unitBladeLength:    $('unit-blade-length'),
   resCurveLength:     $('res-curve-length'),
   unitCurveLength:    $('unit-curve-length'),
-  resTotalLength:     $('res-total-length'),
-  unitTotalLength:    $('unit-total-length'),
-  resBladeWidth:      $('res-blade-width'),
-  unitBladeWidth:     $('unit-blade-width'),
-  resBbox:            $('res-bbox'),
-  unitBbox:           $('unit-bbox'),
+
   resAngle:           $('res-angle'),
   resCalib:           $('res-calib'),
   opencvStatus:       $('opencv-status'),
@@ -1071,16 +1066,6 @@ function updateResults({ status, bladeOnlyPx, bladeOnlyMm, totalLengthPx, totalL
   const calib = state.calibPixelsPerMm;
 
   setVal(elems.resBladeLength,  elems.unitBladeLength,  bladeOnlyMm,   bladeOnlyPx);
-  setVal(elems.resTotalLength,  elems.unitTotalLength,  totalLengthMm, totalLengthPx);
-  setVal(elems.resBladeWidth,   elems.unitBladeWidth,   bladeWidthMm,  bladeWidthPx);
-
-  if (bbox && calib) {
-    elems.resBbox.textContent = `${(bbox.width / calib).toFixed(1)} × ${(bbox.height / calib).toFixed(1)}`;
-    elems.unitBbox.textContent = 'mm';
-  } else if (bbox) {
-    elems.resBbox.textContent = `${bbox.width} × ${bbox.height}`;
-    elems.unitBbox.textContent = 'px';
-  }
 
   elems.resAngle.textContent = angle !== undefined ? angle.toFixed(1) : '--';
 }
@@ -2097,12 +2082,7 @@ function resetApp() {
   elems.unitBladeLength.textContent = 'mm';
   elems.resCurveLength.textContent = '--';
   elems.unitCurveLength.textContent = 'mm';
-  elems.resTotalLength.textContent = '--';
-  elems.unitTotalLength.textContent = 'mm';
-  elems.resBladeWidth.textContent = '--';
-  elems.unitBladeWidth.textContent = 'mm';
-  elems.resBbox.textContent = '--';
-  elems.unitBbox.textContent = 'mm';
+
   elems.resAngle.textContent = '--';
   elems.processedCanvas.getContext('2d').clearRect(0, 0, elems.processedCanvas.width, elems.processedCanvas.height);
   elems.resultImageBox.classList.add('hidden');
