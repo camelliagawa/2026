@@ -286,11 +286,27 @@ async function initCameraList() {
 // =====================================================================
 // 校正モード切替
 // =====================================================================
+
+// 現在の校正モードに応じた基準長さ（mm）を返す
+function calibRefMm() {
+  return state.calibMode === 'a4' ? A4_LONG_MM : CARD_LONG_MM;
+}
+
+// 現在の校正モードに応じた基準名称を返す
+function calibRefName() {
+  return state.calibMode === 'a4' ? `A4用紙 (${A4_LONG_MM}mm)` : `カード (${CARD_LONG_MM}mm)`;
+}
+
 function setCalibMode(mode) {
   state.calibMode = mode;
   elems.btnCalibCard.classList.toggle('active', mode === 'auto');
   elems.btnCalibA4.classList.toggle('active', mode === 'a4');
   if (elems.hintText) elems.hintText.textContent = HINT_TEXTS[mode];
+  if (elems.btnEdgeCardCalib) {
+    elems.btnEdgeCardCalib.textContent = mode === 'a4'
+      ? '📐 短辺3点でA4校正'
+      : '📐 短辺3点でカード校正';
+  }
 }
 
 elems.btnCalibCard.addEventListener('click', () => setCalibMode('auto'));
@@ -1557,7 +1573,7 @@ function drawEdgeCardCalibOverlay() {
     const [p1, p2, p3] = ec.pts;
     const foot    = perpendicularFoot(p1, p2, p3);
     const distPx  = Math.hypot(p3.imgX - foot.x, p3.imgY - foot.y);
-    const ppm     = distPx / CARD_LONG_MM;
+    const ppm     = distPx / calibRefMm();
 
     // 垂線本体（③ → 足）
     ctx.strokeStyle = '#00ff88';
@@ -1599,7 +1615,7 @@ function drawEdgeCardCalibOverlay() {
     // 校正値ラベル（垂線の中点、①②方向にオフセット）
     const midX   = (p3.imgX + foot.x) / 2;
     const midY   = (p3.imgY + foot.y) / 2;
-    const label  = `${CARD_LONG_MM}mm = ${ppm.toFixed(2)} px/mm`;
+    const label  = `${calibRefMm()}mm = ${ppm.toFixed(2)} px/mm`;
     // ①②に平行な方向（垂線に直交）にラベルをずらす
     if (perpLen > 1 && ec.pts.length >= 2) {
       const lineLen2 = Math.hypot(p2.imgX - p1.imgX, p2.imgY - p1.imgY);
@@ -1637,7 +1653,8 @@ function startEdgeCardCalib() {
   }
   elems.btnEdgeCardCalib?.classList.add('hidden');
   elems.btnEdgeCardCalibReset?.classList.remove('hidden');
-  updateEdgeCalibHint('① カード短辺の1点目をタップ →');
+  const refEdge = state.calibMode === 'a4' ? 'A4用紙の短辺' : 'カード短辺';
+  updateEdgeCalibHint(`① ${refEdge}の1点目をタップ →`);
 }
 
 function handleEdgeCardCalibClick(e) {
@@ -1651,7 +1668,7 @@ function handleEdgeCardCalibClick(e) {
     ec.step = 2;
     canvas.getContext('2d').putImageData(state.edgeCanvasImageData, 0, 0);
     drawEdgeCardCalibOverlay();
-    updateEdgeCalibHint('② 同じ短辺の2点目をタップ →');
+    updateEdgeCalibHint(`② 同じ${state.calibMode === 'a4' ? 'A4用紙の短辺' : 'カード短辺'}の2点目をタップ →`);
     return;
   }
 
@@ -1691,10 +1708,10 @@ function applyEdgeCardCalib(isDragging) {
   const distPx  = Math.hypot(p3.imgX - foot.x, p3.imgY - foot.y);
   if (distPx < 20) return;
 
-  const newPpm = distPx / CARD_LONG_MM;
+  const newPpm = distPx / calibRefMm();
   state.calibPixelsPerMm = newPpm;
   if (elems.resCalib)    elems.resCalib.textContent    = newPpm.toFixed(2);
-  if (elems.calibStatus) elems.calibStatus.textContent = `エッジカード3点校正: ${newPpm.toFixed(2)} px/mm`;
+  if (elems.calibStatus) elems.calibStatus.textContent = `エッジ3点校正 [${calibRefName()}]: ${newPpm.toFixed(2)} px/mm`;
   updateEdgeCalibHint(`完了 ✓  ${newPpm.toFixed(2)} px/mm — 点をドラッグして調整できます`);
 
   const canvas = elems.resultProcessedCanvas;
@@ -1713,7 +1730,7 @@ function applyEdgeCardCalib(isDragging) {
   drawEdgeCardCalibOverlay();
 
   if (!isDragging) {
-    log(`エッジカード3点校正完了: ${newPpm.toFixed(2)} px/mm (${distPx.toFixed(0)} px = ${CARD_LONG_MM} mm)`, 'detect');
+    log(`エッジ3点校正完了 [${calibRefName()}]: ${newPpm.toFixed(2)} px/mm (${distPx.toFixed(0)} px = ${calibRefMm()} mm)`, 'detect');
   }
 }
 
