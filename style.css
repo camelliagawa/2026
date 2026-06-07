@@ -719,6 +719,14 @@ select:focus, input:focus {
   text-align: center;
 }
 
+.preview-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #7090a0;
+  min-width: auto;
+  white-space: nowrap;
+}
+
 .calib-card-row {
   display: flex;
   align-items: center;
