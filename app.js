@@ -2639,11 +2639,38 @@ log('OpenCV.js を読み込み中...', 'info');
       return 0;
     }
 
-    // 各点のYをリマップし、断面ごとのZオフセットを加算
+    // エッジ曲線の接線ベクトルを隣接点の差分で補間
+    function lerpEdgeTangent(y) {
+      if (sortedEdge.length < 2) return new THREE.Vector3(0, 1, 0);
+      let e0, e1;
+      if (y <= sortedEdge[0].y) {
+        e0 = sortedEdge[0]; e1 = sortedEdge[1];
+      } else if (y >= sortedEdge[sortedEdge.length - 1].y) {
+        e0 = sortedEdge[sortedEdge.length - 2]; e1 = sortedEdge[sortedEdge.length - 1];
+      } else {
+        for (let i = 1; i < sortedEdge.length; i++) {
+          if (sortedEdge[i].y >= y) { e0 = sortedEdge[i - 1]; e1 = sortedEdge[i]; break; }
+        }
+      }
+      const tv = new THREE.Vector3((e1.x || 0) - (e0.x || 0), e1.y - e0.y, e1.z - e0.z);
+      return tv.lengthSq() > 1e-10 ? tv.normalize() : new THREE.Vector3(0, 1, 0);
+    }
+
+    // 各点のYをリマップし、Zオフセット・断面を接線方向に直角に傾ける
+    const upVec  = new THREE.Vector3(0, 1, 0);
+    const q      = new THREE.Quaternion();
+    const offset = new THREE.Vector3();
+
     slots[0].data = bladeData.map(p => {
-      const yNew = mapY(p.y);
-      const dz   = lerpEdgeZ(yNew);
-      return { ...p, y: yNew, z: p.z + dz };
+      const yNew    = mapY(p.y);
+      const dz      = lerpEdgeZ(yNew);
+      const tangent = lerpEdgeTangent(yNew);
+      q.setFromUnitVectors(upVec, tangent);
+      // アンカー = V谷（刃先）位置 (0, yNew, dz)
+      // 断面内オフセット = (p.x, 0, p.z)
+      offset.set(p.x, 0, p.z);
+      offset.applyQuaternion(q);
+      return { ...p, x: offset.x, y: yNew + offset.y, z: dz + offset.z };
     });
 
     updateInfo();
