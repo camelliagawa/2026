@@ -2530,26 +2530,23 @@ log('OpenCV.js を読み込み中...', 'info');
     const liftRow = p => [p.x, p.y, p.z + LIFT,     p.rx ?? 0, p.ry ?? 0, p.rz ?? 0].map(fmt).join(',');
 
     const rows = [];
-    depthIndices.forEach((depIdx, stripNum) => {
-      const stripPts = [];
-      for (let s = 0; s < numSlices; s++) {
-        const pt = data[s * ptsPerSlice + depIdx];
-        if (pt) stripPts.push(pt);
-      }
-      if (stripPts.length === 0) return;
+    // 外ループ: yスライス（刃渡り位置）、内ループ: V字片脚の深さ方向
+    for (let s = 0; s < numSlices; s++) {
+      const slicePts = depthIndices.map(d => data[s * ptsPerSlice + d]).filter(Boolean);
+      if (slicePts.length === 0) continue;
 
-      // 蛇行（偶数ストリップ: y順、奇数: y逆順）
-      if (stripNum % 2 === 1) stripPts.reverse();
+      // 蛇行（偶数スライス: 外端→頂点、奇数: 頂点→外端）
+      const strip = s % 2 === 1 ? [...slicePts].reverse() : slicePts;
 
       // ストリップ開始前のアプローチ点（初回以外）
-      if (stripNum > 0) rows.push(liftRow(stripPts[0]));
+      if (s > 0) rows.push(liftRow(strip[0]));
 
       // 研削点列
-      stripPts.forEach(p => rows.push(fmtRow(p)));
+      strip.forEach(p => rows.push(fmtRow(p)));
 
       // ストリップ終了後のリトラクト点（最終以外）
-      if (stripNum < depthIndices.length - 1) rows.push(liftRow(stripPts[stripPts.length - 1]));
-    });
+      if (s < numSlices - 1) rows.push(liftRow(strip[strip.length - 1]));
+    }
 
     const csv  = rows.join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
@@ -2559,7 +2556,7 @@ log('OpenCV.js を読み込み中...', 'info');
     a.download = `blade-${side === 'left' ? 'left-HaL' : 'right-HaR'}-${Date.now()}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    log(`${side === 'left' ? '左面' : '右面'}CSV出力: ${depthIndices.length}ストリップ × ${numSlices}点 +リフト点 = ${rows.length}行`, 'info');
+    log(`${side === 'left' ? '左面' : '右面'}CSV出力: ${numSlices}スライス × ${depthIndices.length}点 +リフト点 = ${rows.length}行`, 'info');
   }
 
   document.getElementById('csv3d-export-left')?.addEventListener('click',  () => exportStripCsv('left'));
