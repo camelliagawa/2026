@@ -2505,10 +2505,12 @@ log('OpenCV.js を読み込み中...', 'info');
     const data = slots[0].data;
     if (!data || data.length === 0) return;
 
-    // y値が変わる位置からスライスあたりの点数を検出
+    // 先頭点と同じ x 値が再度現れる位置でスライス境界を検出
+    // (アライメント後は y がスライス内で微変動するため x で判定する)
     let ptsPerSlice = data.length;
+    const x0 = data[0].x;
     for (let i = 1; i < data.length; i++) {
-      if (Math.abs(data[i].y - data[0].y) > 0.001) { ptsPerSlice = i; break; }
+      if (Math.abs(data[i].x - x0) < 0.01) { ptsPerSlice = i; break; }
     }
     if (ptsPerSlice < 3 || ptsPerSlice % 2 === 0) {
       log('データ構造を解析できません（3以上の奇数点/スライスが必要）', 'warn');
