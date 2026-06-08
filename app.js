@@ -2527,37 +2527,33 @@ log('OpenCV.js を読み込み中...', 'info');
     const fmt    = v  => (+v).toFixed(5);
     const fmtRow = p  => [p.x, p.y, p.z, p.rx ?? 0, p.ry ?? 0, p.rz ?? 0].map(fmt).join(',');
 
-    // ストリップごとに個別CSVを生成し ZIP にまとめる
-    // （RoboDK は1CSVファイル = 1曲線として読み込むため分割が必要）
-    const stripCsvs = [];
+    // 急変防止（前の数値を用いること）:
+    // 各ストリップの始点・終点を1点ずつ複製してタンジェント方向をストリップ内向きに固定する。
+    // 複製点はストリップ内の隣接点との方向でタンジェントを確定させ、
+    // ストリップ間の移動によるツール姿勢急変を複製点に限定する。
+    const rows = [];
     for (let s = 0; s < numSlices; s++) {
       const slicePts = depthIndices.map(d => data[s * ptsPerSlice + d]).filter(Boolean);
       if (slicePts.length === 0) continue;
       const strip = s % 2 === 1 ? [...slicePts].reverse() : slicePts;
-      stripCsvs.push(strip.map(p => fmtRow(p)).join('\n'));
+
+      if (s > 0) rows.push(''); // ストリップ区切り
+      rows.push(fmtRow(strip[0]));               // 始点の複製（前の数値）
+      strip.forEach(p => rows.push(fmtRow(p)));  // 実際の研削点
+      rows.push(fmtRow(strip[strip.length - 1])); // 終点の複製（前の数値）
     }
 
-    const label    = side === 'left' ? 'HaL' : 'HaR';
-    const ts       = Date.now();
-    const zipName  = `blade-${label}-${ts}.zip`;
-
-    if (typeof JSZip === 'undefined') {
-      log('JSZip が読み込まれていません。ページを再読み込みしてください。', 'error');
-      return;
-    }
-    const zip = new JSZip();
-    stripCsvs.forEach((csv, i) => {
-      zip.file(`${label}_${String(i + 1).padStart(2, '0')}.csv`, csv);
-    });
-    zip.generateAsync({ type: 'blob' }).then(blob => {
-      const url = URL.createObjectURL(blob);
-      const a   = document.createElement('a');
-      a.href     = url;
-      a.download = zipName;
-      a.click();
-      URL.revokeObjectURL(url);
-      log(`${side === 'left' ? '左面' : '右面'}CSV出力: ${stripCsvs.length}ストリップ × ${depthIndices.length}点 → ${zipName}`, 'info');
-    });
+    const label = side === 'left' ? 'HaL' : 'HaR';
+    const csv  = rows.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `blade-${label}-${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    const gndRows = rows.filter(r => r !== '').length;
+    log(`${side === 'left' ? '左面' : '右面'}CSV出力: ${numSlices}ストリップ × ${depthIndices.length + 2}点 = ${gndRows}点（空行区切り・前の数値複製）`, 'info');
   }
 
   document.getElementById('csv3d-export-left')?.addEventListener('click',  () => exportStripCsv('left'));
