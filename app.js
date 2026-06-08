@@ -2295,10 +2295,8 @@ log('OpenCV.js を読み込み中...', 'info');
     if (i === 0) {
       const exportBtn = document.getElementById('csv3d-export-aligned');
       if (exportBtn) exportBtn.disabled = !slots[0].data;
-      const exportL = document.getElementById('csv3d-export-left');
-      const exportR = document.getElementById('csv3d-export-right');
-      if (exportL) exportL.disabled = !slots[0].data;
-      if (exportR) exportR.disabled = !slots[0].data;
+      const exportBoth = document.getElementById('csv3d-export-both');
+      if (exportBoth) exportBoth.disabled = !slots[0].data;
     }
   }
 
@@ -2500,13 +2498,12 @@ log('OpenCV.js を読み込み中...', 'info');
     log(`合成CSVを出力しました: ${data.length}点`, 'info');
   });
 
-  // ---- 左面/右面 ストリップCSVエクスポート（HaL / HaR形式） ----
-  function exportStripCsv(side) {
+  // ---- 両面ストリップCSVエクスポート（左右合成・1ファイル） ----
+  function exportCombinedCsv() {
     const data = slots[0].data;
     if (!data || data.length === 0) return;
 
     // 先頭点と同じ x 値が再度現れる位置でスライス境界を検出
-    // (アライメント後は y がスライス内で微変動するため x で判定する)
     let ptsPerSlice = data.length;
     const x0 = data[0].x;
     for (let i = 1; i < data.length; i++) {
@@ -2517,46 +2514,47 @@ log('OpenCV.js を読み込み中...', 'info');
       return;
     }
     const numSlices = Math.floor(data.length / ptsPerSlice);
-    const n = (ptsPerSlice - 1) / 2; // 片側セグメント数
+    const n = (ptsPerSlice - 1) / 2;
 
-    // 左面: 深さインデックス 0..n（外端→中心）、右面: n..2n（中心→外端）
-    const depthIndices = side === 'left'
-      ? Array.from({ length: n + 1 }, (_, i) => i)
-      : Array.from({ length: n + 1 }, (_, i) => n + i);
+    const fmt    = v => (+v).toFixed(5);
+    const fmtRow = p => [p.x, p.y, p.z, p.rx ?? 0, p.ry ?? 0, p.rz ?? 0].map(fmt).join(',');
 
-    const fmt    = v  => (+v).toFixed(5);
-    const fmtRow = p  => [p.x, p.y, p.z, p.rx ?? 0, p.ry ?? 0, p.rz ?? 0].map(fmt).join(',');
-
-    const rows = [];
-    // 外ループ: yスライス（刃渡り位置）、内ループ: V字片脚の深さ方向
-    // リフト点は出力しない — 空行でストリップを区切り RoboDK の接近/後退機能に委ねる
-    for (let s = 0; s < numSlices; s++) {
-      const slicePts = depthIndices.map(d => data[s * ptsPerSlice + d]).filter(Boolean);
-      if (slicePts.length === 0) continue;
-
-      // 蛇行（偶数スライス: 外端→頂点、奇数: 頂点→外端）
-      const strip = s % 2 === 1 ? [...slicePts].reverse() : slicePts;
-
-      // 空行 = RoboDK の曲線区切り（各曲線で接近/後退を適用）
-      if (s > 0) rows.push('');
-
-      strip.forEach(p => rows.push(fmtRow(p)));
+    // 急変防止（前の数値を用いること）:
+    // 各ストリップの始点・終点を複製してタンジェント方向をストリップ内向きに固定する。
+    function buildRows(side, sliceOrder) {
+      const depthIndices = side === 'left'
+        ? Array.from({ length: n + 1 }, (_, i) => i)
+        : Array.from({ length: n + 1 }, (_, i) => n + i);
+      const rows = [];
+      for (const s of sliceOrder) {
+        const slicePts = depthIndices.map(d => data[s * ptsPerSlice + d]).filter(Boolean);
+        if (slicePts.length === 0) continue;
+        const strip = s % 2 === 1 ? [...slicePts].reverse() : slicePts;
+        rows.push(fmtRow(strip[0]));               // 始点複製（前の数値）
+        strip.forEach(p => rows.push(fmtRow(p)));  // 実際の研削点
+        rows.push(fmtRow(strip[strip.length - 1])); // 終点複製（前の数値）
+      }
+      return rows;
     }
 
-    const csv  = rows.join('\n');
+    // 左面 s=0→numSlices-1（y昇順）、右面 s=numSlices-1→0（y降順）
+    // 最終左ストリップと最終右ストリップの頂点座標が一致するため折り返し点でジャンプなし
+    const leftOrder  = Array.from({ length: numSlices }, (_, i) => i);
+    const rightOrder = Array.from({ length: numSlices }, (_, i) => numSlices - 1 - i);
+    const allRows = [...buildRows('left', leftOrder), ...buildRows('right', rightOrder)];
+
+    const csv  = allRows.join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href     = url;
-    a.download = `blade-${side === 'left' ? 'left-HaL' : 'right-HaR'}-${Date.now()}.csv`;
+    a.download = `blade-both-${Date.now()}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    const gndRows = rows.filter(r => r !== '').length;
-    log(`${side === 'left' ? '左面' : '右面'}CSV出力: ${numSlices}ストリップ × ${depthIndices.length}点 = ${gndRows}点（空行区切り）`, 'info');
+    log(`両面CSV出力: 左${numSlices}+右${numSlices}ストリップ × ${n + 3}点 = ${allRows.length}点（連続曲線）`, 'info');
   }
 
-  document.getElementById('csv3d-export-left')?.addEventListener('click',  () => exportStripCsv('left'));
-  document.getElementById('csv3d-export-right')?.addEventListener('click', () => exportStripCsv('right'));
+  document.getElementById('csv3d-export-both')?.addEventListener('click', exportCombinedCsv);
 
   // ---- エッジ曲線専用スロット（slot 2）への読み込み ----
   window.csv3dSetEdgeCurve = function (data) {
