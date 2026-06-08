@@ -1252,6 +1252,47 @@ details[open] .advanced-summary::before {
   cursor: not-allowed;
 }
 
+.export-side-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.btn-export-side {
+  flex: 1;
+  padding: 10px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  border: none;
+  border-radius: 10px;
+  letter-spacing: 0.03em;
+  transition: opacity 0.2s, box-shadow 0.2s;
+  cursor: pointer;
+}
+
+.btn-export-side-l {
+  background: linear-gradient(135deg, #1565c0, #0288d1);
+  color: #fff;
+  box-shadow: 0 3px 12px rgba(21, 101, 192, 0.4);
+}
+
+.btn-export-side-r {
+  background: linear-gradient(135deg, #e65100, #f57c00);
+  color: #fff;
+  box-shadow: 0 3px 12px rgba(230, 81, 0, 0.4);
+}
+
+.btn-export-side:not(:disabled):hover {
+  opacity: 0.85;
+}
+
+.btn-export-side:disabled {
+  background: #1e2a3a;
+  color: #3a5060;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
 @media (min-width: 768px) {
   #btn-show-3d {
     display: block;

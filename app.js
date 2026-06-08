@@ -2295,6 +2295,10 @@ log('OpenCV.js を読み込み中...', 'info');
     if (i === 0) {
       const exportBtn = document.getElementById('csv3d-export-aligned');
       if (exportBtn) exportBtn.disabled = !slots[0].data;
+      const exportL = document.getElementById('csv3d-export-left');
+      const exportR = document.getElementById('csv3d-export-right');
+      if (exportL) exportL.disabled = !slots[0].data;
+      if (exportR) exportR.disabled = !slots[0].data;
     }
   }
 
@@ -2495,6 +2499,69 @@ log('OpenCV.js を読み込み中...', 'info');
     URL.revokeObjectURL(url);
     log(`合成CSVを出力しました: ${data.length}点`, 'info');
   });
+
+  // ---- 左面/右面 ストリップCSVエクスポート（HaL / HaR形式） ----
+  function exportStripCsv(side) {
+    const data = slots[0].data;
+    if (!data || data.length === 0) return;
+
+    // y値が変わる位置からスライスあたりの点数を検出
+    let ptsPerSlice = data.length;
+    for (let i = 1; i < data.length; i++) {
+      if (Math.abs(data[i].y - data[0].y) > 0.001) { ptsPerSlice = i; break; }
+    }
+    if (ptsPerSlice < 3 || ptsPerSlice % 2 === 0) {
+      log('データ構造を解析できません（3以上の奇数点/スライスが必要）', 'warn');
+      return;
+    }
+    const numSlices = Math.floor(data.length / ptsPerSlice);
+    const n = (ptsPerSlice - 1) / 2; // 片側セグメント数
+
+    // 左面: 深さインデックス 0..n（外端→中心）、右面: n..2n（中心→外端）
+    const depthIndices = side === 'left'
+      ? Array.from({ length: n + 1 }, (_, i) => i)
+      : Array.from({ length: n + 1 }, (_, i) => n + i);
+
+    const LIFT = 5.0; // リフトオフセット mm
+    const fmt    = v  => (+v).toFixed(5);
+    const fmtRow = p  => [p.x, p.y, p.z,            p.rx ?? 0, p.ry ?? 0, p.rz ?? 0].map(fmt).join(',');
+    const liftRow = p => [p.x, p.y, p.z + LIFT,     p.rx ?? 0, p.ry ?? 0, p.rz ?? 0].map(fmt).join(',');
+
+    const rows = [];
+    depthIndices.forEach((depIdx, stripNum) => {
+      const stripPts = [];
+      for (let s = 0; s < numSlices; s++) {
+        const pt = data[s * ptsPerSlice + depIdx];
+        if (pt) stripPts.push(pt);
+      }
+      if (stripPts.length === 0) return;
+
+      // 蛇行（偶数ストリップ: y順、奇数: y逆順）
+      if (stripNum % 2 === 1) stripPts.reverse();
+
+      // ストリップ開始前のアプローチ点（初回以外）
+      if (stripNum > 0) rows.push(liftRow(stripPts[0]));
+
+      // 研削点列
+      stripPts.forEach(p => rows.push(fmtRow(p)));
+
+      // ストリップ終了後のリトラクト点（最終以外）
+      if (stripNum < depthIndices.length - 1) rows.push(liftRow(stripPts[stripPts.length - 1]));
+    });
+
+    const csv  = rows.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `blade-${side === 'left' ? 'left-HaL' : 'right-HaR'}-${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    log(`${side === 'left' ? '左面' : '右面'}CSV出力: ${depthIndices.length}ストリップ × ${numSlices}点 +リフト点 = ${rows.length}行`, 'info');
+  }
+
+  document.getElementById('csv3d-export-left')?.addEventListener('click',  () => exportStripCsv('left'));
+  document.getElementById('csv3d-export-right')?.addEventListener('click', () => exportStripCsv('right'));
 
   // ---- エッジ曲線専用スロット（slot 2）への読み込み ----
   window.csv3dSetEdgeCurve = function (data) {
