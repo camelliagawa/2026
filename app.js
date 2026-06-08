@@ -2485,7 +2485,7 @@ log('OpenCV.js を読み込み中...', 'info');
     const rows = data.map(p =>
       [p.x, p.y, p.z, p.rx ?? 0, p.ry ?? 1, p.rz ?? 0].map(v => (+v).toFixed(5)).join(',')
     );
-    const csv  = ['x,y,z,rx,ry,rz', ...rows].join('\n');
+    const csv  = rows.join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
