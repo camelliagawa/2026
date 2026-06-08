@@ -2524,13 +2524,12 @@ log('OpenCV.js を読み込み中...', 'info');
       ? Array.from({ length: n + 1 }, (_, i) => i)
       : Array.from({ length: n + 1 }, (_, i) => n + i);
 
-    const LIFT = 5.0; // リフトオフセット mm
     const fmt    = v  => (+v).toFixed(5);
-    const fmtRow = p  => [p.x, p.y, p.z,            p.rx ?? 0, p.ry ?? 0, p.rz ?? 0].map(fmt).join(',');
-    const liftRow = p => [p.x, p.y, p.z + LIFT,     p.rx ?? 0, p.ry ?? 0, p.rz ?? 0].map(fmt).join(',');
+    const fmtRow = p  => [p.x, p.y, p.z, p.rx ?? 0, p.ry ?? 0, p.rz ?? 0].map(fmt).join(',');
 
     const rows = [];
     // 外ループ: yスライス（刃渡り位置）、内ループ: V字片脚の深さ方向
+    // リフト点は出力しない — 空行でストリップを区切り RoboDK の接近/後退機能に委ねる
     for (let s = 0; s < numSlices; s++) {
       const slicePts = depthIndices.map(d => data[s * ptsPerSlice + d]).filter(Boolean);
       if (slicePts.length === 0) continue;
@@ -2538,14 +2537,10 @@ log('OpenCV.js を読み込み中...', 'info');
       // 蛇行（偶数スライス: 外端→頂点、奇数: 頂点→外端）
       const strip = s % 2 === 1 ? [...slicePts].reverse() : slicePts;
 
-      // ストリップ開始前のアプローチ点（初回以外）
-      if (s > 0) rows.push(liftRow(strip[0]));
+      // 空行 = RoboDK の曲線区切り（各曲線で接近/後退を適用）
+      if (s > 0) rows.push('');
 
-      // 研削点列
       strip.forEach(p => rows.push(fmtRow(p)));
-
-      // ストリップ終了後のリトラクト点（最終以外）
-      if (s < numSlices - 1) rows.push(liftRow(strip[strip.length - 1]));
     }
 
     const csv  = rows.join('\n');
@@ -2556,7 +2551,8 @@ log('OpenCV.js を読み込み中...', 'info');
     a.download = `blade-${side === 'left' ? 'left-HaL' : 'right-HaR'}-${Date.now()}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    log(`${side === 'left' ? '左面' : '右面'}CSV出力: ${numSlices}スライス × ${depthIndices.length}点 +リフト点 = ${rows.length}行`, 'info');
+    const gndRows = rows.filter(r => r !== '').length;
+    log(`${side === 'left' ? '左面' : '右面'}CSV出力: ${numSlices}ストリップ × ${depthIndices.length}点 = ${gndRows}点（空行区切り）`, 'info');
   }
 
   document.getElementById('csv3d-export-left')?.addEventListener('click',  () => exportStripCsv('left'));
