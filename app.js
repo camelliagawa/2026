@@ -2537,7 +2537,6 @@ log('OpenCV.js を読み込み中...', 'info');
       if (slicePts.length === 0) continue;
       const strip = s % 2 === 1 ? [...slicePts].reverse() : slicePts;
 
-      if (s > 0) rows.push(''); // ストリップ区切り
       rows.push(fmtRow(strip[0]));               // 始点の複製（前の数値）
       strip.forEach(p => rows.push(fmtRow(p)));  // 実際の研削点
       rows.push(fmtRow(strip[strip.length - 1])); // 終点の複製（前の数値）
@@ -2553,7 +2552,7 @@ log('OpenCV.js を読み込み中...', 'info');
     a.click();
     URL.revokeObjectURL(url);
     const gndRows = rows.filter(r => r !== '').length;
-    log(`${side === 'left' ? '左面' : '右面'}CSV出力: ${numSlices}ストリップ × ${depthIndices.length + 2}点 = ${gndRows}点（空行区切り・前の数値複製）`, 'info');
+    log(`${side === 'left' ? '左面' : '右面'}CSV出力: ${numSlices}ストリップ × ${depthIndices.length + 2}点 = ${gndRows}点（前の数値複製・連続曲線）`, 'info');
   }
 
   document.getElementById('csv3d-export-left')?.addEventListener('click',  () => exportStripCsv('left'));
