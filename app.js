@@ -433,6 +433,14 @@ bindParamSpinBtn('noise-min-area-dec', 'noise-min-area-inc', elems.noiseMinArea,
 bindParamSpinBtn('dot-radius-dec',     'dot-radius-inc',     elems.dotRadius,    2,   20,   1);
 
 
+// モバイル表示（タブナビゲーション表示中）のときのみ結果タブへ切り替える
+function switchToResultTab() {
+  const btn = document.querySelector('.tab-btn[data-tab="result"]');
+  if (btn && window.getComputedStyle(document.getElementById('tab-nav')).display !== 'none') {
+    btn.click();
+  }
+}
+
 // =====================================================================
 // 撮影画像の一括解析（自動校正 + 刃渡り計測）
 // =====================================================================
@@ -445,6 +453,8 @@ function analyzeImage(canvas) {
   if (elems.bladeCurveStatus) elems.bladeCurveStatus.classList.add('hidden');
 
   state.lastCanvas = canvas;
+  // 前の画像の座標に依存するアノテーション（手動アゴ・切先、3点校正、刃渡り曲線）をクリア
+  resetImageAnnotations();
 
   elems.processedCanvas.width  = canvas.width;
   elems.processedCanvas.height = canvas.height;
@@ -455,10 +465,7 @@ function analyzeImage(canvas) {
   ac.height = canvas.height;
   ac.getContext('2d').drawImage(canvas, 0, 0);
   elems.resultImageBox.classList.remove('hidden');
-  const resultTabBtn = document.querySelector('.tab-btn[data-tab="result"]');
-  if (resultTabBtn && window.getComputedStyle(document.getElementById('tab-nav')).display !== 'none') {
-    resultTabBtn.click();
-  }
+  switchToResultTab();
 
   const calRef = detectReferenceObject(canvas);
   if (calRef) {
@@ -819,14 +826,9 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
     }
     cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
-    result = new cv.Mat();
     if (state.params.showEdges) {
+      result = new cv.Mat();
       cv.cvtColor(edgesDisplay, result, cv.COLOR_GRAY2RGBA);
-    } else {
-      src.copyTo(result);
-    }
-
-    if (state.params.showEdges) {
       cv.imshow(elems.processedCanvas, result);
     }
     if (elems.resultProcessedCanvas && elems.resultProcessedImageBox && edgesDisplay) {
@@ -901,10 +903,7 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
           bladeWidth:  bladeWidthMm ?? bladeWidthPx,
           angle: angleRaw,
         });
-        const resultTabBtn = document.querySelector('.tab-btn[data-tab="result"]');
-        if (resultTabBtn && window.getComputedStyle(document.getElementById('tab-nav')).display !== 'none') {
-          resultTabBtn.click();
-        }
+        switchToResultTab();
       }
 
       updateBladeCurveBtn();
@@ -1873,14 +1872,11 @@ elems.btnSaveImage.addEventListener('click', () => {
 // =====================================================================
 // リセット
 // =====================================================================
-function resetApp() {
+// 画像固有のアノテーション状態（手動アゴ・切先、3点校正、刃渡り曲線）をクリア
+function resetImageAnnotations() {
   state.manualBlade       = { step: 0, ago: null, kissaki: null, dragging: null };
   state.edgeCardCalib     = { step: 0, pts: [], dragging: null };
-  state.edgeCanvasImageData = null;
-  state.calibPixelsPerMm  = null;
-  state.lastCanvas        = null;
   state.lastBladeCurvePts = null;
-  state.history           = [];
 
   elems.resultProcessedCanvas.classList.remove('manual-selecting');
   elems.btnManualBlade.classList.remove('hidden');
@@ -1889,22 +1885,30 @@ function resetApp() {
   elems.btnEdgeCardCalib.classList.remove('hidden');
   elems.btnEdgeCardCalibReset.classList.add('hidden');
   updateEdgeCalibHint(null);
-  clearOverlay();
 
+  elems.resCurveLength.textContent = '--';
+  elems.unitCurveLength.textContent = 'mm';
+  updateBladeCurveBtn();
+}
+
+function resetApp() {
+  resetImageAnnotations();
+  state.edgeCanvasImageData = null;
+  state.calibPixelsPerMm  = null;
+  state.lastCanvas        = null;
+  state.history           = [];
+
+  clearOverlay();
   elems.historyBody.innerHTML = '';
   elems.calibStatus.textContent = '';
   elems.resCalib.textContent = '未設定';
   elems.resBladeLength.textContent = '--';
   elems.unitBladeLength.textContent = 'mm';
-  elems.resCurveLength.textContent = '--';
-  elems.unitCurveLength.textContent = 'mm';
-
   elems.resAngle.textContent = '--';
   elems.processedCanvas.getContext('2d').clearRect(0, 0, elems.processedCanvas.width, elems.processedCanvas.height);
   elems.resultImageBox.classList.add('hidden');
   elems.resultProcessedImageBox.classList.add('hidden');
   elems.bladeCurveStatus.classList.add('hidden');
-  updateBladeCurveBtn();
 }
 
 elems.btnReset.addEventListener('click', () => {
@@ -1954,7 +1958,7 @@ log('OpenCV.js を読み込み中...', 'info');
 // 3D CSV ビューア（Three.js 動的ロード）
 // =====================================================================
 ;(function () {
-  // ---- スロット別カラー定義（slot 0: シアン系 / slot 1: オレンジ系）----
+  // ---- スロット別カラー定義（slot 0: シアン系 / slot 1: 緑系）----
   const COLORS = [
     { line: 0x00e5ff, dot: 0xff4455, arrow: 0x44ff88 },
     { line: 0x50ff80, dot: 0xffffff, arrow: 0x80ffaa }, // slot 1: エッジ曲線（緑）
@@ -2258,7 +2262,7 @@ log('OpenCV.js を読み込み中...', 'info');
 
   function parseCsv(text) {
     const rows = [];
-    for (const line of text.split('\n')) {
+    for (const line of text.replace(/^\uFEFF/, '').split('\n')) {
       const t = line.trim();
       if (!t || t.startsWith('#')) continue;
       const cols = t.split(/[\s,;]+/);
@@ -2529,10 +2533,9 @@ log('OpenCV.js を読み込み中...', 'info');
       for (const s of sliceOrder) {
         const slicePts = depthIndices.map(d => data[s * ptsPerSlice + d]).filter(Boolean);
         if (slicePts.length === 0) continue;
-        const strip = slicePts;
-        rows.push(fmtRow(strip[0]));               // 始点複製（前の数値）
-        strip.forEach(p => rows.push(fmtRow(p)));  // 実際の研削点
-        rows.push(fmtRow(strip[strip.length - 1])); // 終点複製（前の数値）
+        rows.push(fmtRow(slicePts[0]));                    // 始点複製（前の数値）
+        slicePts.forEach(p => rows.push(fmtRow(p)));       // 実際の研削点
+        rows.push(fmtRow(slicePts[slicePts.length - 1]));  // 終点複製（前の数値）
       }
       return rows;
     }
