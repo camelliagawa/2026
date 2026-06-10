@@ -2826,10 +2826,13 @@ log('OpenCV.js を読み込み中...', 'info');
     const rows = [];
     for (let y = 0; y <= yMax; y += yStep) {
       // 左辺: 左端(Lpts[n]) → apex(Lpts[0])、n+1点（top→apex順）
+      // 方向ベクトルは右面のミラー（斜面の上り方向 = apex→外端向き）に統一する。
+      // 下り方向だと研削パスの移動方向と平行になり、RoboDKの姿勢計算が
+      // 縮退してストリップ内でR軸が大きく旋回する。
       for (let k = n; k >= 0; k--) {
         const segIdx = Math.max(0, k - 1);
         const tL = Math.min(80, Math.max(0.1, thetaLArr[segIdx] || DEFAULT_THETA)) * Math.PI / 180;
-        rows.push({ x: -Lpts[k].x, y, z: Lpts[k].z, rx: Math.sin(tL), ry: 0, rz: -Math.cos(tL) });
+        rows.push({ x: -Lpts[k].x, y, z: Lpts[k].z, rx: -Math.sin(tL), ry: 0, rz: Math.cos(tL) });
       }
       // 右辺: apex+1(Rpts[1]) → 右端(Rpts[n])、n点
       for (let k = 1; k <= n; k++) {
