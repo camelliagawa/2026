@@ -2529,7 +2529,7 @@ log('OpenCV.js を読み込み中...', 'info');
       for (const s of sliceOrder) {
         const slicePts = depthIndices.map(d => data[s * ptsPerSlice + d]).filter(Boolean);
         if (slicePts.length === 0) continue;
-        const strip = s % 2 === 1 ? [...slicePts].reverse() : slicePts;
+        const strip = slicePts;
         rows.push(fmtRow(strip[0]));               // 始点複製（前の数値）
         strip.forEach(p => rows.push(fmtRow(p)));  // 実際の研削点
         rows.push(fmtRow(strip[strip.length - 1])); // 終点複製（前の数値）
