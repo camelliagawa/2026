@@ -2533,8 +2533,16 @@ log('OpenCV.js を読み込み中...', 'info');
         : Array.from({ length: n + 1 }, (_, i) => 2 * n - i);
       const rows = [];
       for (const s of sliceOrder) {
-        const slicePts = depthIndices.map(d => data[s * ptsPerSlice + d]).filter(Boolean);
+        let slicePts = depthIndices.map(d => data[s * ptsPerSlice + d]).filter(Boolean);
         if (slicePts.length === 0) continue;
+        // 頂点（V谷）は左右共有点でデータ上は左面の法線を持つ。
+        // 右面ストリップでそのまま使うと谷で法線が約140°反転しロボットが大きく動くため、
+        // 隣接する右面点の法線に置き換える。
+        if (side === 'right' && slicePts.length >= 2) {
+          const apex = slicePts[slicePts.length - 1];
+          const prev = slicePts[slicePts.length - 2];
+          slicePts = [...slicePts.slice(0, -1), { ...apex, rx: prev.rx, ry: prev.ry, rz: prev.rz }];
+        }
         rows.push(fmtRow(slicePts[0]));                    // 始点複製（前の数値）
         slicePts.forEach(p => rows.push(fmtRow(p)));       // 実際の研削点
         rows.push(fmtRow(slicePts[slicePts.length - 1]));  // 終点複製（前の数値）
