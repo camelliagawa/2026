@@ -2525,10 +2525,12 @@ log('OpenCV.js を読み込み中...', 'info');
 
     // 急変防止（前の数値を用いること）:
     // 各ストリップの始点・終点を複製してタンジェント方向をストリップ内向きに固定する。
+    // 全ストリップとも物理的に外端→頂点（刃先）方向に統一する。
+    // 左面: インデックス 0(左外端)→n(頂点) / 右面: 2n(右外端)→n(頂点)
     function buildRows(side, sliceOrder) {
       const depthIndices = side === 'left'
         ? Array.from({ length: n + 1 }, (_, i) => i)
-        : Array.from({ length: n + 1 }, (_, i) => n + i);
+        : Array.from({ length: n + 1 }, (_, i) => 2 * n - i);
       const rows = [];
       for (const s of sliceOrder) {
         const slicePts = depthIndices.map(d => data[s * ptsPerSlice + d]).filter(Boolean);
@@ -2541,7 +2543,6 @@ log('OpenCV.js を読み込み中...', 'info');
     }
 
     // 左面 s=0→numSlices-1（y昇順）、右面 s=numSlices-1→0（y降順）
-    // 最終左ストリップと最終右ストリップの頂点座標が一致するため折り返し点でジャンプなし
     const leftOrder  = Array.from({ length: numSlices }, (_, i) => i);
     const rightOrder = Array.from({ length: numSlices }, (_, i) => numSlices - 1 - i);
     const allRows = [...buildRows('left', leftOrder), ...buildRows('right', rightOrder)];
