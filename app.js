@@ -2297,8 +2297,6 @@ log('OpenCV.js を読み込み中...', 'info');
       rmBtn.classList.add('hidden');
     }
     if (i === 0) {
-      const exportBtn = document.getElementById('csv3d-export-aligned');
-      if (exportBtn) exportBtn.disabled = !slots[0].data;
       const exportBoth = document.getElementById('csv3d-export-both');
       if (exportBoth) exportBoth.disabled = !slots[0].data;
     }
@@ -2482,24 +2480,6 @@ log('OpenCV.js を読み込み中...', 'info');
     const sa = arrowsChk ? arrowsChk.checked : true;
     openViewer(() => { buildSlot(0, sa); fitAllData(); });
     log('刃先形状をエッジ曲線に合わせて補正しました', 'info');
-  });
-
-  // ---- 合成結果CSVエクスポート ----
-  document.getElementById('csv3d-export-aligned')?.addEventListener('click', () => {
-    const data = slots[0].data;
-    if (!data || data.length === 0) return;
-    const rows = data.map(p =>
-      [p.x, p.y, p.z, p.rx ?? 0, p.ry ?? 1, p.rz ?? 0].map(v => (+v).toFixed(5)).join(',')
-    );
-    const csv  = rows.join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = `blade-aligned-${Date.now()}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    log(`合成CSVを出力しました: ${data.length}点`, 'info');
   });
 
   // ---- 両面ストリップCSVエクスポート（左右合成・1ファイル） ----
