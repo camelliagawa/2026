@@ -13,6 +13,16 @@ const HINT_TEXTS = {
   a4:   'A4用紙の上に包丁を置き、用紙全体が映るように撮影してください。長辺（297mm）を基準に自動校正します。',
 };
 
+// 画像処理パラメータの初期値（「デフォルトに戻す」で参照）
+const DEFAULT_PARAMS = {
+  cannyLow: 50,
+  cannyHigh: 150,
+  minArea: 2000,
+  noiseMinArea: 0,
+  dotRadius: 5,
+  showEdges: true,
+};
+
 // =====================================================================
 // 状態管理
 // =====================================================================
@@ -32,14 +42,7 @@ const state = {
   // step: 0=inactive 1=awaiting ago 2=awaiting kissaki 3=both placed (drag enabled)
   edgeCardCalib: { step: 0, pts: [], dragging: null },
   // step: 0=inactive 1=awaiting p1 2=awaiting p2 3=awaiting p3 4=done(drag enabled)
-  params: {
-    cannyLow: 50,
-    cannyHigh: 150,
-    minArea: 2000,
-    noiseMinArea: 0,
-    dotRadius: 5,
-    showEdges: true,
-  },
+  params: { ...DEFAULT_PARAMS },
 };
 
 // =====================================================================
@@ -61,6 +64,7 @@ const elems = {
   noiseMinArea:       $('noise-min-area'),
   dotRadius:          $('dot-radius'),
   showEdges:          $('show-edges'),
+  btnResetParams:     $('btn-reset-params'),
   btnSaveImage:       $('btn-save-image'),
   btnReset:           $('btn-reset'),
   video:              $('video'),
@@ -431,6 +435,21 @@ bindParamSpinBtn('canny-high-dec',     'canny-high-inc',     elems.cannyHigh,   
 bindParamSpinBtn('min-area-dec',       'min-area-inc',       elems.minArea,    100, 20000, 100);
 bindParamSpinBtn('noise-min-area-dec', 'noise-min-area-inc', elems.noiseMinArea, 0,  600,  10);
 bindParamSpinBtn('dot-radius-dec',     'dot-radius-inc',     elems.dotRadius,    2,   20,   1);
+
+// 画像処理パラメータをデフォルト値に戻す
+function resetImageParams() {
+  Object.assign(state.params, DEFAULT_PARAMS);
+  elems.cannyLow.value     = DEFAULT_PARAMS.cannyLow;
+  elems.cannyHigh.value    = DEFAULT_PARAMS.cannyHigh;
+  elems.minArea.value      = DEFAULT_PARAMS.minArea;
+  elems.noiseMinArea.value = DEFAULT_PARAMS.noiseMinArea;
+  elems.dotRadius.value    = DEFAULT_PARAMS.dotRadius;
+  elems.showEdges.checked  = DEFAULT_PARAMS.showEdges;
+  if (state.lastCanvas) detectKnifeOnCanvas(state.lastCanvas, false);
+  if (state.manualBlade.ago && state.manualBlade.kissaki) redrawManualBladeOverlay();
+  log('画像処理パラメータをデフォルトに戻しました', 'info');
+}
+elems.btnResetParams?.addEventListener('click', resetImageParams);
 
 
 // モバイル表示（タブナビゲーション表示中）のときのみ結果タブへ切り替える
