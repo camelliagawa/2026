@@ -17,7 +17,6 @@ const HINT_TEXTS = {
 const DEFAULT_PARAMS = {
   cannyLow: 50,
   cannyHigh: 150,
-  minArea: 2000,
   noiseMinArea: 0,
   dotRadius: 5,
   showEdges: true,
@@ -60,7 +59,6 @@ const elems = {
   fileInput:          $('file-input'),
   cannyLow:           $('canny-low'),
   cannyHigh:          $('canny-high'),
-  minArea:            $('min-area'),
   noiseMinArea:       $('noise-min-area'),
   dotRadius:          $('dot-radius'),
   showEdges:          $('show-edges'),
@@ -409,7 +407,6 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 // =====================================================================
 elems.cannyLow.addEventListener('input', () => { state.params.cannyLow = +elems.cannyLow.value; });
 elems.cannyHigh.addEventListener('input', () => { state.params.cannyHigh = +elems.cannyHigh.value; });
-elems.minArea.addEventListener('input', () => { state.params.minArea = +elems.minArea.value; });
 elems.noiseMinArea.addEventListener('input', () => {
   state.params.noiseMinArea = +elems.noiseMinArea.value;
   if (state.lastCanvas) detectKnifeOnCanvas(state.lastCanvas, false);
@@ -432,7 +429,6 @@ function bindParamSpinBtn(decId, incId, inputEl, min, max, step) {
 }
 bindParamSpinBtn('canny-low-dec',      'canny-low-inc',      elems.cannyLow,    10,  200,   1);
 bindParamSpinBtn('canny-high-dec',     'canny-high-inc',     elems.cannyHigh,   50,  400,   1);
-bindParamSpinBtn('min-area-dec',       'min-area-inc',       elems.minArea,    100, 20000, 100);
 bindParamSpinBtn('noise-min-area-dec', 'noise-min-area-inc', elems.noiseMinArea, 0,  600,  10);
 bindParamSpinBtn('dot-radius-dec',     'dot-radius-inc',     elems.dotRadius,    2,   20,   1);
 
@@ -441,7 +437,6 @@ function resetImageParams() {
   Object.assign(state.params, DEFAULT_PARAMS);
   elems.cannyLow.value     = DEFAULT_PARAMS.cannyLow;
   elems.cannyHigh.value    = DEFAULT_PARAMS.cannyHigh;
-  elems.minArea.value      = DEFAULT_PARAMS.minArea;
   elems.noiseMinArea.value = DEFAULT_PARAMS.noiseMinArea;
   elems.dotRadius.value    = DEFAULT_PARAMS.dotRadius;
   elems.showEdges.checked  = DEFAULT_PARAMS.showEdges;
@@ -869,8 +864,6 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
     for (let i = 0; i < contours.size(); i++) {
       const cnt = contours.get(i);
       const area = cv.contourArea(cnt);
-      if (area < state.params.minArea) { cnt.delete(); continue; }
-
       const rect = cv.minAreaRect(cnt);
       const w = Math.max(rect.size.width, rect.size.height);
       const h = Math.min(rect.size.width, rect.size.height);
