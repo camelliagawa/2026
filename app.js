@@ -1756,7 +1756,10 @@ function drawBladeEdgeCurve(pts) {
     });
 
     const endR = Math.max(3, Math.round(state.params.dotRadius * scale));
-    const fontSize = Math.max(28, Math.round(32 * scale));
+    const fontSize = Math.max(22, Math.round(26 * scale));
+    const gap = Math.round(4 * scale);
+    ctx.font = `bold ${fontSize}px sans-serif`;
+    ctx.textBaseline = 'bottom';
     [[pts[0], 'アゴ'], [pts[pts.length - 1], '切先']].forEach(([p, label]) => {
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = Math.max(3, Math.round(4 * scale));
@@ -1772,13 +1775,19 @@ function drawBladeEdgeCurve(pts) {
       ctx.arc(p.imgX, p.imgY, endR, 0, Math.PI * 2);
       ctx.fill();
       ctx.shadowBlur = 0;
-      ctx.font = `bold ${fontSize}px sans-serif`;
-      ctx.textBaseline = 'bottom';
+      // ラベルがキャンバス外に出ないよう配置（はみ出す場合は点の反対側へ）
+      const textW = ctx.measureText(label).width;
+      let tx = p.imgX + endR + gap;
+      if (tx + textW > canvas.width) tx = p.imgX - endR - gap - textW;
+      tx = Math.max(gap, Math.min(tx, canvas.width - textW - gap));
+      let ty = p.imgY - gap;
+      if (ty - fontSize < 0) ty = p.imgY + endR + gap + fontSize;
+      ty = Math.min(ty, canvas.height - gap);
       ctx.lineWidth = Math.max(4, Math.round(5 * scale));
       ctx.strokeStyle = '#000000';
-      ctx.strokeText(label, p.imgX + endR + 4, p.imgY - 4);
+      ctx.strokeText(label, tx, ty);
       ctx.fillStyle = '#ffffff';
-      ctx.fillText(label, p.imgX + endR + 4, p.imgY - 4);
+      ctx.fillText(label, tx, ty);
     });
 
     ctx.restore();
