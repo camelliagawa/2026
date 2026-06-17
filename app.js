@@ -1200,6 +1200,30 @@ function snapToEdge(canvas, x, y, radius) {
   return { imgX: bestX, imgY: bestY };
 }
 
+// 連立一次方程式 A·x = b をガウス消去(部分ピボット)で解く。解けなければ null。
+function solveLinear(A, b) {
+  const n = b.length;
+  const M = A.map((row, i) => [...row, b[i]]);
+  for (let col = 0; col < n; col++) {
+    let piv = col;
+    for (let r = col + 1; r < n; r++)
+      if (Math.abs(M[r][col]) > Math.abs(M[piv][col])) piv = r;
+    if (Math.abs(M[piv][col]) < 1e-12) return null;
+    if (piv !== col) { const t = M[col]; M[col] = M[piv]; M[piv] = t; }
+    for (let r = col + 1; r < n; r++) {
+      const f = M[r][col] / M[col][col];
+      for (let j = col; j <= n; j++) M[r][j] -= f * M[col][j];
+    }
+  }
+  const x = new Array(n).fill(0);
+  for (let i = n - 1; i >= 0; i--) {
+    let v = M[i][n];
+    for (let j = i + 1; j < n; j++) v -= M[i][j] * x[j];
+    x[i] = v / M[i][i];
+  }
+  return x;
+}
+
 function traceEdgeBetween(canvas, ago, kissaki) {
   const ppm = state.calibPixelsPerMm;
   const src = state.edgeCanvasImageData;
@@ -1262,17 +1286,43 @@ function traceEdgeBetween(canvas, ago, kissaki) {
     yMed[s] = win[win.length >> 1];
   }
 
-  // 移動平均: ダマスカス模様由来の細かなギザつきを除去しつつ刃形状は保持
-  const avg = Math.max(2, Math.round(xSteps * 0.02));
+  // 端点(アゴ・切先)を厳密に通る多項式で滑らかな刃形状を再構成する。
+  //   y(t) = y0 + (y1-y0)·t + t·(1-t)·P(t)        (t∈[0,1])
+  // 第2項までで両端点を固定し、t·(1-t)·P(t) が中間の反り(腹・切先の反り上がり)
+  // を表現する。検出点 yMed に対し P(t) を最小二乗で当てるため、刃先検出の
+  // ばらつきが大域的に平均化され、移動平均で残っていた細かなガタつきが消える。
+  const DEG = 3;                 // 自由多項式 P(t) の次数(全体では DEG+2 次)
+  const nc = DEG + 1;
+  const A = Array.from({ length: nc }, () => new Array(nc).fill(0));
+  const bvec = new Array(nc).fill(0);
+  for (let s = 0; s <= xSteps; s++) {
+    const t = s / xSteps;
+    const base = y0 + (y1 - y0) * t;
+    const r = yMed[s] - base;
+    const g = t * (1 - t);
+    const phi = new Array(nc);
+    let tk = 1;
+    for (let k = 0; k < nc; k++) { phi[k] = g * tk; tk *= t; }
+    for (let k = 0; k < nc; k++) {
+      bvec[k] += phi[k] * r;
+      for (let j = 0; j < nc; j++) A[k][j] += phi[k] * phi[j];
+    }
+  }
+  const coef = solveLinear(A, bvec);
+
   const out = [];
   for (let s = 0; s <= xSteps; s++) {
-    let sum = 0, cnt = 0;
-    for (let k = -avg; k <= avg; k++) {
-      const j = s + k;
-      if (j < 0 || j > xSteps) continue;
-      sum += yMed[j]; cnt++;
+    const t = s / xSteps;
+    const base = y0 + (y1 - y0) * t;
+    let imgY;
+    if (coef) {
+      const g = t * (1 - t);
+      let p = 0, tk = 1;
+      for (let k = 0; k < nc; k++) { p += coef[k] * tk; tk *= t; }
+      imgY = Math.round(base + g * p);
+    } else {
+      imgY = Math.round(yMed[s]); // フォールバック(数値的に解けない場合)
     }
-    let imgY = Math.round(sum / cnt);
     // 端点は指定通りに固定
     if (s === 0) imgY = y0;
     else if (s === xSteps) imgY = y1;
