@@ -73,7 +73,6 @@ const elems = {
   resCurveLength:     $('res-curve-length'),
   unitCurveLength:    $('unit-curve-length'),
 
-  resAngle:           $('res-angle'),
   resCalib:           $('res-calib'),
   opencvStatus:       $('opencv-status'),
   annotatedCanvas:         $('annotated-canvas'),
@@ -409,7 +408,7 @@ elems.cannyLow.addEventListener('input', () => { state.params.cannyLow = +elems.
 elems.cannyHigh.addEventListener('input', () => { state.params.cannyHigh = +elems.cannyHigh.value; });
 elems.noiseMinArea.addEventListener('input', () => {
   state.params.noiseMinArea = +elems.noiseMinArea.value;
-  if (state.lastCanvas) detectKnifeOnCanvas(state.lastCanvas, false);
+  if (state.lastCanvas) buildEdgeImage(state.lastCanvas, false);
 });
 elems.dotRadius.addEventListener('input', () => {
   state.params.dotRadius = +elems.dotRadius.value;
@@ -440,7 +439,7 @@ function resetImageParams() {
   elems.noiseMinArea.value = DEFAULT_PARAMS.noiseMinArea;
   elems.dotRadius.value    = DEFAULT_PARAMS.dotRadius;
   elems.showEdges.checked  = DEFAULT_PARAMS.showEdges;
-  if (state.lastCanvas) detectKnifeOnCanvas(state.lastCanvas, false);
+  if (state.lastCanvas) buildEdgeImage(state.lastCanvas, false);
   if (state.manualBlade.ago && state.manualBlade.kissaki) redrawManualBladeOverlay();
   log('画像処理パラメータをデフォルトに戻しました', 'info');
 }
@@ -456,7 +455,7 @@ function switchToResultTab() {
 }
 
 // =====================================================================
-// 撮影画像の一括解析（自動校正 + 刃渡り計測）
+// 撮影画像の一括解析（自動校正 + エッジ画像生成）
 // =====================================================================
 function analyzeImage(canvas) {
   if (!state.opencvReady) {
@@ -500,7 +499,7 @@ function analyzeImage(canvas) {
     log(failMsg, 'warn');
   }
 
-  detectKnifeOnCanvas(canvas, true);
+  buildEdgeImage(canvas, true);
 }
 
 function detectReferenceObject(tmpCanvas) {
@@ -796,20 +795,18 @@ document.addEventListener('drop', (e) => {
 });
 
 // =====================================================================
-// OpenCV 包丁検出コア
+// OpenCV エッジ画像生成（手動アゴ・切先指定の下地）
 // =====================================================================
-function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
+function buildEdgeImage(srcCanvas, saveResult = false) {
   if (!state.opencvReady) return;
 
-  let src, gray, blurred, edges, edgesDisplay, contours, hierarchy, result;
+  let src, gray, blurred, edges, edgesDisplay, result;
 
   try {
     src = cv.imread(srcCanvas);
     gray = new cv.Mat();
     blurred = new cv.Mat();
     edges = new cv.Mat();
-    contours = new cv.MatVector();
-    hierarchy = new cv.Mat();
 
     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
     cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
@@ -819,9 +816,8 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
     cv.dilate(edges, edges, kernel);
     kernel.delete();
 
-    // Clone edges before findContours — OpenCV.js clears the source Mat during findContours.
     edgesDisplay = edges.clone();
-    // Remove small noise components (background texture dots) by zeroing their pixels.
+    // 背景テクスチャ等の小さなノイズ成分（連結成分）を除去する
     if (state.params.noiseMinArea > 0) {
       const labels = new cv.Mat(), stats = new cv.Mat(), centroids = new cv.Mat();
       cv.connectedComponentsWithStats(edgesDisplay, labels, stats, centroids, 8, cv.CV_32S);
@@ -838,7 +834,6 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
       }
       labels.delete();
     }
-    cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
     if (state.params.showEdges) {
       result = new cv.Mat();
@@ -856,80 +851,14 @@ function detectKnifeOnCanvas(srcCanvas, saveResult = false) {
       elems.resultProcessedImageBox.classList.remove('hidden');
     }
 
-    // 最大スコアの細長い輪郭を包丁候補として選択
-    let bestContour = null;
-    let bestScore = 0;
-    let bestRect = null;
-
-    for (let i = 0; i < contours.size(); i++) {
-      const cnt = contours.get(i);
-      const area = cv.contourArea(cnt);
-      const rect = cv.minAreaRect(cnt);
-      const w = Math.max(rect.size.width, rect.size.height);
-      const h = Math.min(rect.size.width, rect.size.height);
-      if (h < 1) { cnt.delete(); continue; }
-
-      const aspect = w / h;
-      if (aspect < 2.5 || aspect > 25) { cnt.delete(); continue; }
-
-      const score = area * Math.min(aspect, 15);
-      if (score > bestScore) {
-        bestScore = score;
-        if (bestContour) bestContour.delete();
-        bestContour = cnt;
-        bestRect = { rect, area, aspect, w, h };
-      } else {
-        cnt.delete();
-      }
-    }
-
-    const overlayCtx = elems.overlayCanvas.getContext('2d');
-    clearOverlay();
-
-    if (bestContour && bestRect) {
-      const totalLengthPx = bestRect.w;
-      const bladeWidthPx  = bestRect.h;
-      const angleRaw      = bestRect.rect.angle;
-
-      // 幅プロファイル解析で刃部分のみの長さを推定
-      const bladeResult = estimateBladeLength(bestContour, bestRect.rect);
-      const bladeOnlyPx = bladeResult ? bladeResult.lengthPx : totalLengthPx;
-
-      let bladeOnlyMm   = null;
-      let totalLengthMm = null;
-      let bladeWidthMm  = null;
-      if (state.calibPixelsPerMm) {
-        bladeOnlyMm   = bladeOnlyPx   / state.calibPixelsPerMm;
-        totalLengthMm = totalLengthPx / state.calibPixelsPerMm;
-        bladeWidthMm  = bladeWidthPx  / state.calibPixelsPerMm;
-      }
-
-      updateResults({ bladeOnlyPx, bladeOnlyMm, angle: angleRaw });
-
-      drawAnnotatedResult(srcCanvas);
-
-      if (saveResult) {
-        log(`撮影解析: 刃渡り ${bladeOnlyMm ? bladeOnlyMm.toFixed(1) + ' mm' : bladeOnlyPx.toFixed(0) + ' px'} / 全長 ${totalLengthMm ? totalLengthMm.toFixed(1) + ' mm' : totalLengthPx.toFixed(0) + ' px'}`, 'detect');
-        addHistory({
-          bladeLength: bladeOnlyMm ?? bladeOnlyPx,
-          bladeWidth:  bladeWidthMm ?? bladeWidthPx,
-          angle: angleRaw,
-        });
-        switchToResultTab();
-      }
-
-      updateBladeCurveBtn();
-      bestContour.delete();
-    } else {
-      if (saveResult) log('包丁を検出できませんでした。パラメータを調整してください。', 'warn');
-    }
+    if (saveResult) log('エッジ画像を生成しました。アゴ・切先を手動指定してください。', 'info');
 
     elems.btnSaveImage.disabled = false;
 
   } catch (err) {
-    log(`検出エラー: ${err.message || err}`, 'error');
+    log(`エッジ画像生成エラー: ${err.message || err}`, 'error');
   } finally {
-    [src, gray, blurred, edges, edgesDisplay, contours, hierarchy, result].forEach(m => {
+    [src, gray, blurred, edges, edgesDisplay, result].forEach(m => {
       try { if (m) m.delete(); } catch (_) {}
     });
   }
@@ -952,110 +881,12 @@ function drawAnnotatedResult(srcCanvas) {
 }
 
 // =====================================================================
-// 刃部分のみ長さ推定（幅プロファイル解析）
+// 計測履歴管理（手動指定で確定した刃渡り・曲線長を記録）
 // =====================================================================
-function estimateBladeLength(contour, rect) {
-  // OpenCVのminAreaRectはangle=widthベクトルのX軸からの角度(-90,0]を返す。
-  // height > width の場合、widthが短軸になっているため90°補正して長軸を水平に揃える。
-  let angle = rect.angle;
-  if (rect.size.height > rect.size.width) {
-    angle += 90;
-  }
-  const cx = rect.center.x;
-  const cy = rect.center.y;
-  const rad = angle * Math.PI / 180;
-  const cos = Math.cos(rad);
-  const sin = Math.sin(rad);
-
-  // 輪郭点群を回転して長軸を水平に揃える
-  const pts = [];
-  for (let i = 0; i < contour.rows; i++) {
-    const px = contour.data32S[i * 2];
-    const py = contour.data32S[i * 2 + 1];
-    pts.push({
-      x:  cos * (px - cx) + sin * (py - cy),
-      y: -sin * (px - cx) + cos * (py - cy),
-    });
-  }
-
-  let minX = Infinity, maxX = -Infinity;
-  for (const p of pts) { if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x; }
-  const range = maxX - minX;
-  if (range < 1) return null;
-
-  // 50ビンの幅プロファイルを作成
-  const BINS = 50;
-  const binSize = range / BINS;
-  const minY = new Array(BINS).fill(Infinity);
-  const maxY = new Array(BINS).fill(-Infinity);
-  pts.forEach(p => {
-    const b = Math.min(Math.floor((p.x - minX) / binSize), BINS - 1);
-    if (p.y < minY[b]) minY[b] = p.y;
-    if (p.y > maxY[b]) maxY[b] = p.y;
-  });
-  const widths = minY.map((mn, i) => mn === Infinity ? 0 : maxY[i] - mn);
-
-  // 移動平均スムージング（窓幅3）
-  const smoothed = widths.map((_, i) => {
-    const s = Math.max(0, i - 1);
-    const e = Math.min(BINS - 1, i + 1);
-    const vals = widths.slice(s, e + 1).filter(v => v > 0);
-    return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
-  });
-
-  const maxWidth = Math.max(...smoothed);
-  if (maxWidth < 1) return null;
-
-  // 最大幅ビンの位置で刃先側を判定する
-  // 包丁は刃先（細）→刃元（最大幅）→柄 の順に幅が変化するため、最大幅位置が刃渡りの終端
-  const maxBin = smoothed.indexOf(Math.max(...smoothed));
-  const tipSide = maxBin >= BINS / 2 ? 'left' : 'right';
-
-  const junctionBin = detectJuncBin(smoothed, maxY, maxBin, tipSide, BINS);
-
-  const tipBin  = tipSide === 'left' ? 0 : BINS - 1;
-  const lengthPx = Math.abs(junctionBin - tipBin) * binSize;
-
-  // 回転座標から元画像座標へ逆変換（中心線 y_rot=0 として）
-  const tipX_rot    = tipSide === 'left' ? minX : maxX;
-  const juncX_rot   = minX + junctionBin * binSize;
-  const handleX_rot = tipSide === 'left' ? maxX : minX;
-  const imgPt = xr => ({ x: cos * xr + cx, y: sin * xr + cy });
-
-  return {
-    lengthPx,
-    tipPt:       imgPt(tipX_rot),
-    juncPt:      imgPt(juncX_rot),
-    handleEndPt: imgPt(handleX_rot),
-  };
-}
-
-// =====================================================================
-// 結果表示
-// =====================================================================
-function setVal(valElem, unitElem, mm, px, unitLabel = 'mm') {
-  if (mm !== null && mm !== undefined) {
-    valElem.textContent = mm.toFixed(1);
-    unitElem.textContent = unitLabel;
-  } else {
-    valElem.textContent = px !== undefined ? px.toFixed(0) : '--';
-    unitElem.textContent = 'px';
-  }
-}
-
-function updateResults({ bladeOnlyPx, bladeOnlyMm, angle }) {
-  setVal(elems.resBladeLength, elems.unitBladeLength, bladeOnlyMm, bladeOnlyPx);
-  elems.resAngle.textContent = angle !== undefined ? angle.toFixed(1) : '--';
-}
-
-// =====================================================================
-// 履歴管理
-// =====================================================================
-function addHistory({ bladeLength, bladeWidth, angle }) {
+function addHistory({ bladeLength, curveLength }) {
   const entry = {
     bladeLength,
-    bladeWidth,
-    angle,
+    curveLength,
     time: new Date().toLocaleTimeString('ja-JP'),
   };
   state.history.push(entry);
@@ -1063,9 +894,8 @@ function addHistory({ bladeLength, bladeWidth, angle }) {
   const tr = document.createElement('tr');
   tr.innerHTML = `
     <td>${state.history.length}</td>
-    <td>${bladeLength !== null ? bladeLength.toFixed(1) : '--'}</td>
-    <td>${bladeWidth !== null ? bladeWidth.toFixed(1) : '--'}</td>
-    <td>${angle !== null ? angle.toFixed(1) : '--'}</td>
+    <td>${bladeLength !== null && bladeLength !== undefined ? bladeLength.toFixed(1) : '--'}</td>
+    <td>${curveLength !== null && curveLength !== undefined ? curveLength.toFixed(1) : '--'}</td>
     <td>${entry.time}</td>
   `;
   elems.historyBody.prepend(tr);
@@ -1084,12 +914,11 @@ function exportCsv() {
     log('エクスポートするデータがありません', 'warn');
     return;
   }
-  const header = ['#', '刃渡り(mm)', '刃幅(mm)', '角度(°)', '時刻'];
+  const header = ['#', '刃渡り(mm)', '曲線長(mm)', '時刻'];
   const rows = state.history.map((h, i) => [
     i + 1,
-    h.bladeLength !== null ? h.bladeLength.toFixed(1) : '',
-    h.bladeWidth !== null ? h.bladeWidth.toFixed(1) : '',
-    h.angle !== null ? h.angle.toFixed(1) : '',
+    h.bladeLength !== null && h.bladeLength !== undefined ? h.bladeLength.toFixed(1) : '',
+    h.curveLength !== null && h.curveLength !== undefined ? h.curveLength.toFixed(1) : '',
     h.time,
   ]);
   const csv = [header, ...rows].map(r => r.join(',')).join('\n');
@@ -1109,71 +938,6 @@ function exportCsv() {
 function updateBladeCurveBtn() {
   const hasCurve = !!state.lastBladeCurvePts;
   elems.btnPreviewCurve3d.disabled = !hasCurve;
-}
-
-function detectJuncBin(wSmoothed, bottomEdge, maxBin, tipSide, BINS) {
-  const globalMaxW = wSmoothed[maxBin];
-  if (globalMaxW === 0) return maxBin;
-
-  const skip = Math.round(BINS * 0.20);
-  let bladeMaxBin = maxBin, bladeMaxW = globalMaxW;
-  if (tipSide === 'right' && maxBin < skip) {
-    bladeMaxW = 0;
-    for (let i = skip; i < BINS; i++) {
-      if (wSmoothed[i] > bladeMaxW) { bladeMaxW = wSmoothed[i]; bladeMaxBin = i; }
-    }
-    if (bladeMaxW === 0) return BINS - 1;
-  } else if (tipSide === 'left' && maxBin >= BINS - skip) {
-    bladeMaxW = 0;
-    for (let i = BINS - 1 - skip; i >= 0; i--) {
-      if (wSmoothed[i] > bladeMaxW) { bladeMaxW = wSmoothed[i]; bladeMaxBin = i; }
-    }
-    if (bladeMaxW === 0) return 0;
-  }
-
-  // Estimate handle bottom Y from the handle-end zone (farthest 20% from blade).
-  // Use the minimum maxY in that zone to get the "purest" handle level (avoids bolster).
-  let handleY = Infinity, handleN = 0;
-  if (tipSide === 'right') {
-    for (let i = 0; i < skip; i++) {
-      const v = bottomEdge[i];
-      if (v !== Infinity && v !== -Infinity) { if (v < handleY) handleY = v; handleN++; }
-    }
-  } else {
-    for (let i = BINS - skip; i < BINS; i++) {
-      const v = bottomEdge[i];
-      if (v !== Infinity && v !== -Infinity) { if (v < handleY) handleY = v; handleN++; }
-    }
-  }
-  if (handleN === 0) return bladeMaxBin;
-
-  // Cutting edge Y at blade heel — the reference depth of the blade cutting edge.
-  const heelY = bottomEdge[bladeMaxBin];
-  if (heelY === Infinity || heelY === -Infinity) return bladeMaxBin;
-  const stepHeight = heelY - handleY;
-
-  // If no significant step exists, fall back to bladeMaxBin.
-  if (stepHeight <= 0) return bladeMaxBin;
-
-  // アゴ = first bin (scanning from handle toward blade) where the bottom edge
-  // exceeds the handle level by 50% of the total handle→heel step.
-  // The step at the アゴ is abrupt, so the 50% crossing coincides with the
-  // first bin where the cutting edge appears below the handle bottom line.
-  const threshold = handleY + stepHeight * 0.50;
-
-  if (tipSide === 'right') {
-    for (let i = skip; i <= bladeMaxBin; i++) {
-      const v = bottomEdge[i];
-      if (v !== Infinity && v !== -Infinity && v > threshold) return i;
-    }
-    return bladeMaxBin;
-  } else {
-    for (let i = BINS - 1 - skip; i >= bladeMaxBin; i--) {
-      const v = bottomEdge[i];
-      if (v !== Infinity && v !== -Infinity && v > threshold) return i;
-    }
-    return bladeMaxBin;
-  }
 }
 
 // =====================================================================
@@ -1459,7 +1223,9 @@ function onEdgePointerDown(e) {
     updateManualBladeHint('完了 ✓　赤丸をドラッグして調整できます');
     const curvePts = state.lastBladeCurvePts;
     const curveLen = curvePts ? calcCurveLengthMm(curvePts) : null;
-    log(`手動刃渡り曲線: 水平 ${curvePts ? curvePts[curvePts.length-1].xMm.toFixed(1) : '?'} mm / 曲線長 ${curveLen !== null ? curveLen.toFixed(1) : '?'} mm`, 'detect');
+    const bladeLen = curvePts ? curvePts[curvePts.length - 1].xMm : null;
+    log(`手動刃渡り曲線: 水平 ${bladeLen !== null ? bladeLen.toFixed(1) : '?'} mm / 曲線長 ${curveLen !== null ? curveLen.toFixed(1) : '?'} mm`, 'detect');
+    if (bladeLen !== null) addHistory({ bladeLength: bladeLen, curveLength: curveLen });
     updateBladeCurveBtn();
     return;
   }
@@ -1984,7 +1750,6 @@ function resetApp() {
   elems.resCalib.textContent = '未設定';
   elems.resBladeLength.textContent = '--';
   elems.unitBladeLength.textContent = 'mm';
-  elems.resAngle.textContent = '--';
   elems.processedCanvas.getContext('2d').clearRect(0, 0, elems.processedCanvas.width, elems.processedCanvas.height);
   elems.resultImageBox.classList.add('hidden');
   elems.resultProcessedImageBox.classList.add('hidden');
@@ -2562,7 +2327,7 @@ log('OpenCV.js を読み込み中...', 'info');
     log('刃先形状をエッジ曲線に合わせて補正しました', 'info');
   });
 
-  // ---- 両面ストリップCSVエクスポート（左右合成・1ファイル） ----
+  // ---- 研磨ルートCSVエクスポート（左面+右面を1ファイルに連結） ----
   function exportCombinedCsv() {
     const data = slots[0].data;
     if (!data || data.length === 0) return;
@@ -2623,7 +2388,7 @@ log('OpenCV.js を読み込み中...', 'info');
     a.download = `blade-both-${Date.now()}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    log(`両面CSV出力: 左${numSlices}+右${numSlices}ストリップ × ${n + 3}点 = ${allRows.length}点（連続曲線）`, 'info');
+    log(`研磨ルートCSV出力: 左面${numSlices}+右面${numSlices}ストリップ × ${n + 3}点 = ${allRows.length}点（連続曲線）`, 'info');
   }
 
   document.getElementById('csv3d-export-both')?.addEventListener('click', exportCombinedCsv);
