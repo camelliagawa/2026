@@ -1214,60 +1214,69 @@ function traceEdgeBetween(canvas, ago, kissaki) {
 
   const x0 = ago.imgX, y0 = ago.imgY;
   const x1 = kissaki.imgX, y1 = kissaki.imgY;
-  const totalDX = x1 - x0, totalDY = y1 - y0;
-  const steps = Math.max(Math.abs(totalDX), Math.abs(totalDY), 1);
-  const WINDOW = 50;
-  const rawPts = [];
+  const signX = x1 >= x0 ? 1 : -1;
+  const xSteps = Math.abs(x1 - x0);
+  if (xSteps < 4) return null;
 
-  for (let s = 0; s <= steps; s++) {
-    const t = s / steps;
-    const ex = Math.round(x0 + totalDX * t);
-    const ey = Math.round(y0 + totalDY * t);
-    let bestY = ey, bestDist = WINDOW + 1;
-    for (let r = 0; r <= WINDOW; r++) {
-      if (isEdge(ex, ey - r) && r < bestDist) { bestY = ey - r; bestDist = r; }
-      if (r > 0 && isEdge(ex, ey + r) && r < bestDist) { bestY = ey + r; bestDist = r; }
-    }
-    if (rawPts.length === 0 || ex !== rawPts[rawPts.length - 1].imgX) {
-      rawPts.push({ imgX: ex, imgY: bestY });
-    }
-  }
-  if (rawPts.length < 4) return null;
+  // アゴ→切先を結ぶ基準線(弦)の近傍で、各xにおける刃先(ブレード下端の輪郭)を
+  // 追従する。刃先は刃の下端の境界なので「基準線近傍の最下端エッジ」を拾う。
+  // これによりダマスカス模様など刃の内部に出る偽エッジ(刃先より上に出る)へ
+  // 飛び移らず、実際の刃の曲線に沿った形状を再現できる。
+  // 弦より上の探索は狭く・下方向を広めにとる(刃先は弦に対して下に膨らむ腹形状)。
+  const UP   = Math.max(8,  Math.round(W * 0.006)); // 基準線より上の探索量(px)
+  const DOWN = Math.max(20, Math.round(W * 0.015)); // 基準線より下の探索量(px)
+  const yRaw = new Array(xSteps + 1).fill(null);
 
-  // Quadratic least squares: imgY ≈ a·t² + b·t + c (t∈[0,1])
-  const n = rawPts.length;
-  let s0 = 0, s1 = 0, s2 = 0, s3 = 0, s4 = 0, r0 = 0, r1 = 0, r2 = 0;
-  for (let i = 0; i < n; i++) {
-    const t = i / (n - 1), y = rawPts[i].imgY, t2 = t * t;
-    s0++; s1 += t; s2 += t2; s3 += t2 * t; s4 += t2 * t2;
-    r0 += y; r1 += t * y; r2 += t2 * y;
-  }
-  const M = [[s0, s1, s2, r0], [s1, s2, s3, r1], [s2, s3, s4, r2]];
-  for (let col = 0; col < 3; col++) {
-    let mr = col;
-    for (let row = col + 1; row < 3; row++)
-      if (Math.abs(M[row][col]) > Math.abs(M[mr][col])) mr = row;
-    if (mr !== col) [M[col], M[mr]] = [M[mr], M[col]];
-    if (Math.abs(M[col][col]) < 1e-12) return rawPts.map((p, i) => ({ imgX: p.imgX, imgY: p.imgY, xMm: i / (n - 1) * Math.abs(totalDX) / ppm, yMm: (p.imgY - y0) / ppm }));
-    for (let row = col + 1; row < 3; row++) {
-      const f = M[row][col] / M[col][col];
-      for (let j = col; j <= 3; j++) M[row][j] -= f * M[col][j];
+  for (let s = 0; s <= xSteps; s++) {
+    const x = x0 + signX * s;
+    const refY = Math.round(y0 + (y1 - y0) * (s / xSteps));
+    // 窓内で最も下(=刃先)にあるエッジを採用する
+    let found = null;
+    for (let y = refY + DOWN; y >= refY - UP; y--) {
+      if (isEdge(x, y)) { found = y; break; }
     }
+    yRaw[s] = found;
   }
-  const v = [0, 0, 0];
-  for (let i = 2; i >= 0; i--) {
-    v[i] = M[i][3];
-    for (let j = i + 1; j < 3; j++) v[i] -= M[i][j] * v[j];
-    v[i] /= M[i][i];
+  // 端点はユーザ指定のアゴ・切先に固定
+  yRaw[0] = y0; yRaw[xSteps] = y1;
+
+  // エッジ未検出(刃先の途切れ)区間を前後の検出点から線形補間で埋める
+  for (let s = 1; s < xSteps; s++) {
+    if (yRaw[s] !== null) continue;
+    let a = s - 1; while (a > 0 && yRaw[a] === null) a--;
+    let b = s + 1; while (b < xSteps && yRaw[b] === null) b++;
+    const ya = yRaw[a], yb = yRaw[b];
+    yRaw[s] = ya + (yb - ya) * (s - a) / (b - a);
   }
-  const [c, b, a] = v;
-  const signX = totalDX >= 0 ? 1 : -1;
-  const xSteps = Math.abs(totalDX);
+
+  // メディアンフィルタ: 単発のスパイク(誤検出した離れたエッジ)を除去
+  const med = Math.max(1, Math.round(xSteps * 0.01));
+  const yMed = new Array(xSteps + 1);
+  for (let s = 0; s <= xSteps; s++) {
+    const win = [];
+    for (let k = -med; k <= med; k++) {
+      const j = s + k;
+      if (j >= 0 && j <= xSteps) win.push(yRaw[j]);
+    }
+    win.sort((p, q) => p - q);
+    yMed[s] = win[win.length >> 1];
+  }
+
+  // 移動平均: ダマスカス模様由来の細かなギザつきを除去しつつ刃形状は保持
+  const avg = Math.max(2, Math.round(xSteps * 0.02));
   const out = [];
   for (let s = 0; s <= xSteps; s++) {
-    const t = xSteps === 0 ? 0 : s / xSteps;
+    let sum = 0, cnt = 0;
+    for (let k = -avg; k <= avg; k++) {
+      const j = s + k;
+      if (j < 0 || j > xSteps) continue;
+      sum += yMed[j]; cnt++;
+    }
+    let imgY = Math.round(sum / cnt);
+    // 端点は指定通りに固定
+    if (s === 0) imgY = y0;
+    else if (s === xSteps) imgY = y1;
     const imgX = x0 + signX * s;
-    const imgY = Math.round(a * t * t + b * t + c);
     out.push({ imgX, imgY, xMm: s / ppm, yMm: (imgY - y0) / ppm });
   }
   return out.length >= 2 ? out : null;
