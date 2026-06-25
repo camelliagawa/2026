@@ -1122,7 +1122,7 @@ function redrawManualBladeOverlay() {
   state.lastBladeCurvePts = pts;
   drawBladeEdgeCurve(pts);
 
-  const lenMm = pts[pts.length - 1].xMm;
+  const lenMm = bladeChordMm(pts) ?? pts[pts.length - 1].xMm;
   const curveMm = calcCurveLengthMm(pts);
   if (elems.resBladeLength) {
     elems.resBladeLength.textContent = lenMm.toFixed(1);
@@ -1223,8 +1223,8 @@ function onEdgePointerDown(e) {
     updateManualBladeHint('完了 ✓　赤丸をドラッグして調整できます');
     const curvePts = state.lastBladeCurvePts;
     const curveLen = curvePts ? calcCurveLengthMm(curvePts) : null;
-    const bladeLen = curvePts ? curvePts[curvePts.length - 1].xMm : null;
-    log(`手動刃渡り曲線: 水平 ${bladeLen !== null ? bladeLen.toFixed(1) : '?'} mm / 曲線長 ${curveLen !== null ? curveLen.toFixed(1) : '?'} mm`, 'detect');
+    const bladeLen = curvePts ? bladeChordMm(curvePts) : null;
+    log(`手動刃渡り曲線: 直線 ${bladeLen !== null ? bladeLen.toFixed(1) : '?'} mm / 曲線長 ${curveLen !== null ? curveLen.toFixed(1) : '?'} mm`, 'detect');
     if (bladeLen !== null) addHistory({ bladeLength: bladeLen, curveLength: curveLen });
     updateBladeCurveBtn();
     return;
@@ -1543,15 +1543,36 @@ function calcCurveLengthMm(pts) {
   return total / ppm;
 }
 
+// アゴ→切先 の直線距離(弦, mm)。撮影の傾きに依存しない「刃渡り(刃のみ)」。
+function bladeChordMm(pts) {
+  if (!pts || pts.length < 2) return null;
+  const ppm = state.calibPixelsPerMm;
+  const a = pts[0], b = pts[pts.length - 1];
+  if (!ppm) return b.xMm; // ppm不明時は従来の水平投影にフォールバック
+  return Math.hypot(b.imgX - a.imgX, b.imgY - a.imgY) / ppm;
+}
+
 function sampleByMm(pts, intervalMm) {
   if (!pts || pts.length === 0) return [];
+  const ppm = state.calibPixelsPerMm;
   const out = [pts[0]];
-  let lastMm = pts[0].xMm;
-  for (let i = 1; i < pts.length; i++) {
-    if (pts[i].xMm - lastMm >= intervalMm) {
-      out.push(pts[i]);
-      lastMm = pts[i].xMm;
+  if (!ppm) {
+    // ppm不明時は従来どおり水平投影(xMm)で間引く
+    let lastMm = pts[0].xMm;
+    for (let i = 1; i < pts.length; i++) {
+      if (pts[i].xMm - lastMm >= intervalMm) { out.push(pts[i]); lastMm = pts[i].xMm; }
     }
+    return out;
+  }
+  // 実際の刃に沿った弧長で等間隔サンプリングする。水平投影(xMm)基準だと
+  // 斜め撮影で刃が傾いた分だけ点が減ってしまうため、撮影の向きに依存しない
+  // 実距離(ピクセル距離/ppm)の累積で間引く。
+  let acc = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const dx = pts[i].imgX - pts[i - 1].imgX;
+    const dy = pts[i].imgY - pts[i - 1].imgY;
+    acc += Math.sqrt(dx * dx + dy * dy) / ppm;
+    if (acc >= intervalMm) { out.push(pts[i]); acc = 0; }
   }
   return out;
 }
