@@ -2507,18 +2507,62 @@ log('OpenCV.js を読み込み中...', 'info');
 
   document.getElementById('csv3d-export-both')?.addEventListener('click', exportCombinedCsv);
 
-  // ---- RoboDK向けに包丁画像を出力（点群PLY + テクスチャ平面OBJ/MTL/PNG） ----
+  // ---- RoboDK向けに包丁画像を出力（点群PLY + テクスチャ平面OBJ/MTL/PNG をZIPで） ----
   // 研磨ルートCSVと同一座標系(mm・アゴ原点・x≈0平面)で書き出すため、RoboDKで
   // ルートと同じ親フレームに配置すれば、画像が把持した刃にそのまま重なる。
-  function downloadBlob(filename, data, mime) {
-    const blob = data instanceof Blob ? data : new Blob([data], { type: mime });
+  // 複数ファイルの連続DLはブラウザにブロックされるため、ZIP1個にまとめて配布する。
+  function downloadBlob(filename, blob) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = filename; a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  function exportRoboDKAssets() {
+  // 無圧縮(store)ZIP生成。files=[{name, bytes:Uint8Array}]
+  let _crcTable = null;
+  function crc32(bytes) {
+    if (!_crcTable) {
+      _crcTable = new Uint32Array(256);
+      for (let n = 0; n < 256; n++) {
+        let c = n;
+        for (let k = 0; k < 8; k++) c = c & 1 ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+        _crcTable[n] = c >>> 0;
+      }
+    }
+    let crc = 0xFFFFFFFF;
+    for (let i = 0; i < bytes.length; i++) crc = (crc >>> 8) ^ _crcTable[(crc ^ bytes[i]) & 0xFF];
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+  function zipStore(files) {
+    const u16 = n => [n & 255, (n >> 8) & 255];
+    const u32 = n => [n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >>> 24) & 255];
+    const enc = new TextEncoder();
+    const parts = [], central = [];
+    let offset = 0;
+    for (const f of files) {
+      const nameB = enc.encode(f.name);
+      const crc = crc32(f.bytes), size = f.bytes.length;
+      const local = [...u32(0x04034b50), ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
+        ...u32(crc), ...u32(size), ...u32(size), ...u16(nameB.length), ...u16(0)];
+      parts.push(new Uint8Array(local), nameB, f.bytes);
+      central.push({ nameB, crc, size, offset });
+      offset += local.length + nameB.length + size;
+    }
+    const cdStart = offset;
+    for (const c of central) {
+      const cd = [...u32(0x02014b50), ...u16(20), ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
+        ...u32(c.crc), ...u32(c.size), ...u32(c.size), ...u16(c.nameB.length),
+        ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(c.offset)];
+      parts.push(new Uint8Array(cd), c.nameB);
+      offset += cd.length + c.nameB.length;
+    }
+    const eocd = [...u32(0x06054b50), ...u16(0), ...u16(0), ...u16(central.length), ...u16(central.length),
+      ...u32(offset - cdStart), ...u32(cdStart), ...u16(0)];
+    parts.push(new Uint8Array(eocd));
+    return new Blob(parts, { type: 'application/zip' });
+  }
+
+  async function exportRoboDKAssets() {
     if (!edgeImagePayload) {
       log('先に「3Dビューアで表示」で包丁画像を読み込んでください', 'warn');
       return;
@@ -2562,7 +2606,6 @@ log('OpenCV.js を読み込み中...', 'info');
     const ply = `ply\nformat ascii 1.0\nelement vertex ${pts.length}\n` +
       `property float x\nproperty float y\nproperty float z\nend_header\n` +
       pts.map(p => `${p[0].toFixed(3)} ${p[1].toFixed(3)} ${p[2].toFixed(3)}`).join('\n') + '\n';
-    downloadBlob('knife-overlay.ply', ply, 'text/plain');
 
     // (2) テクスチャ平面 OBJ + MTL + PNG（黒背景を透明にした画像を貼る）
     const base = 'knife-overlay';
@@ -2573,23 +2616,44 @@ log('OpenCV.js を読み込み中...', 'info');
       'vt 0 1', 'vt 1 1', 'vt 1 0', 'vt 0 0',
       'f 1/1 2/2 3/3', 'f 1/1 3/3 4/4',
     ].join('\n') + '\n';
-    downloadBlob(`${base}.obj`, obj, 'text/plain');
-    downloadBlob(`${base}.mtl`,
-      `newmtl knife\nKd 1 1 1\nd 1\nmap_Kd ${base}.png\nmap_d ${base}.png\n`, 'text/plain');
+    const mtl = `newmtl knife\nKd 1 1 1\nd 1\nmap_Kd ${base}.png\nmap_d ${base}.png\n`;
 
     const oc = document.createElement('canvas');
     oc.width = W; oc.height = H;
     const octx = oc.getContext('2d');
-    const out = octx.createImageData(W, H);
+    const outImg = octx.createImageData(W, H);
     for (let k = 0; k < W * H; k++) {
       const i = k * 4;
-      out.data[i] = out.data[i + 1] = out.data[i + 2] = 255;
-      out.data[i + 3] = Math.max(img[i], img[i + 1], img[i + 2]); // 明るさ=アルファ(白線のみ不透明)
+      outImg.data[i] = outImg.data[i + 1] = outImg.data[i + 2] = 255;
+      outImg.data[i + 3] = Math.max(img[i], img[i + 1], img[i + 2]); // 明るさ=アルファ(白線のみ不透明)
     }
-    octx.putImageData(out, 0, 0);
-    oc.toBlob(b => downloadBlob(`${base}.png`, b, 'image/png'), 'image/png');
+    octx.putImageData(outImg, 0, 0);
+    const pngBlob = await new Promise(res => oc.toBlob(res, 'image/png'));
+    const pngBytes = new Uint8Array(await pngBlob.arrayBuffer());
 
-    log(`RoboDK用に出力: 点群 ${pts.length}点(knife-overlay.ply) + テクスチャ平面(knife-overlay.obj/.mtl/.png)。研磨ルートCSVと同一座標系・mm。RoboDKでルートと同じ親フレームに配置すると重なります。`, 'info');
+    const readme =
+      'RoboDK 取り込み手順\n' +
+      '====================\n' +
+      '・単位: mm（RoboDK既定と同じ）\n' +
+      '・座標系: 研磨ルートCSV(blade-both)と完全に同一（アゴ=原点）\n\n' +
+      '1) knife-overlay.ply（点群）または knife-overlay.obj（テクスチャ平面）を\n' +
+      '   ファイル>開く で読み込む（objは同フォルダの .mtl/.png も必要）。\n' +
+      '2) 取り込んだオブジェクトを、研磨ルートCSV(blade-both)と「同じ親フレーム」の\n' +
+      '   直下にドラッグし、ローカル姿勢を 0,0,0 / 0,0,0 にする。\n' +
+      '   ※ツール(手先)として追加された場合は、いったん station/フレーム直下へ移動。\n' +
+      '3) これでルートと画像がぴったり重なります。\n';
+
+    const enc = new TextEncoder();
+    const zip = zipStore([
+      { name: `${base}.ply`, bytes: enc.encode(ply) },
+      { name: `${base}.obj`, bytes: enc.encode(obj) },
+      { name: `${base}.mtl`, bytes: enc.encode(mtl) },
+      { name: `${base}.png`, bytes: pngBytes },
+      { name: 'README.txt', bytes: enc.encode(readme) },
+    ]);
+    downloadBlob(`${base}.zip`, zip);
+
+    log(`RoboDK用に出力: ${base}.zip（点群${pts.length}点PLY + テクスチャ平面OBJ/MTL/PNG + README）。研磨ルートCSVと同一座標系・mm。`, 'info');
   }
 
   document.getElementById('csv3d-export-robodk')?.addEventListener('click', exportRoboDKAssets);
