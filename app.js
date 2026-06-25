@@ -1,17 +1,7 @@
 'use strict';
 
-// クレジットカード長辺寸法（ISO/IEC 7810 ID-1規格: 85.60 × 53.98 mm）
-// 校正の基準値として全コードで統一使用する
-const CARD_LONG_MM = 85.6;
-
-// A4用紙寸法（ISO 216規格: 210 × 297 mm）
-const A4_LONG_MM  = 297;
-const A4_SHORT_MM = 210;
-
-const HINT_TEXTS = {
-  auto: '包丁とクレジットカード（または500円硬貨）を同じ画面に収めて撮影してください。カードを自動検出してスケールを校正します。',
-  a4:   'A4用紙の上に包丁を置き、用紙全体が映るように撮影してください。長辺（297mm）を基準に自動校正します。',
-};
+// A4用紙寸法（ISO 216規格: 210 × 297 mm）。長辺297mmを校正の基準値に使う。
+const A4_LONG_MM = 297;
 
 // 画像処理パラメータの初期値（「デフォルトに戻す」で参照）
 const DEFAULT_PARAMS = {
@@ -30,7 +20,6 @@ const state = {
   cameraActive: false,
   stream: null,
   facingMode: 'environment',     // 'environment'=背面 / 'user'=前面
-  calibMode: 'a4',               // 'auto'=カード, 'a4'=A4用紙（デフォルト）
   calibPixelsPerMm: null,        // px/mm
   calibFromAutoLoad: false,      // 起動時の前回画像自動読み込みによる校正かどうか
   history: [],
@@ -39,7 +28,7 @@ const state = {
   edgeCanvasImageData: null,
   manualBlade: { step: 0, ago: null, kissaki: null, dragging: null },
   // step: 0=inactive 1=awaiting ago 2=awaiting kissaki 3=both placed (drag enabled)
-  edgeCardCalib: { step: 0, pts: [], dragging: null },
+  edgeCalib: { step: 0, pts: [], dragging: null },
   // step: 0=inactive 1=awaiting p1 2=awaiting p2 3=awaiting p3 4=done(drag enabled)
   params: { ...DEFAULT_PARAMS },
 };
@@ -87,8 +76,8 @@ const elems = {
   btnManualBlade:         $('btn-manual-blade'),
   btnManualBladeReset:    $('btn-manual-blade-reset'),
   manualBladeHint:        $('manual-blade-hint'),
-  btnEdgeCardCalib:       $('btn-edge-card-calib'),
-  btnEdgeCardCalibReset:  $('btn-edge-card-calib-reset'),
+  btnEdgeCalib:       $('btn-edge-calib'),
+  btnEdgeCalibReset:  $('btn-edge-calib-reset'),
   edgeCalibHint:          $('edge-calib-hint'),
   historyBody:        $('history-body'),
   btnClearHistory:    $('btn-clear-history'),
@@ -98,9 +87,6 @@ const elems = {
   btnReloadLast:           $('btn-reload-last'),
   btnDownloadSaved:        $('btn-download-saved'),
   dragOverlay:             $('drag-overlay'),
-  btnCalibCard:            $('btn-calib-card'),
-  btnCalibA4:              $('btn-calib-a4'),
-  hintText:                $('hint-text'),
 };
 
 
@@ -271,30 +257,9 @@ async function initCameraList() {
 // 校正モード切替
 // =====================================================================
 
-// 現在の校正モードに応じた基準長さ（mm）を返す
-function calibRefMm() {
-  return state.calibMode === 'a4' ? A4_LONG_MM : CARD_LONG_MM;
-}
-
-// 現在の校正モードに応じた基準名称を返す
-function calibRefName() {
-  return state.calibMode === 'a4' ? `A4用紙 (${A4_LONG_MM}mm)` : `カード (${CARD_LONG_MM}mm)`;
-}
-
-function setCalibMode(mode) {
-  state.calibMode = mode;
-  elems.btnCalibCard.classList.toggle('active', mode === 'auto');
-  elems.btnCalibA4.classList.toggle('active', mode === 'a4');
-  if (elems.hintText) elems.hintText.textContent = HINT_TEXTS[mode];
-  if (elems.btnEdgeCardCalib) {
-    elems.btnEdgeCardCalib.textContent = mode === 'a4'
-      ? '📐 短辺3点でA4校正'
-      : '📐 短辺3点でカード校正';
-  }
-}
-
-elems.btnCalibCard.addEventListener('click', () => setCalibMode('auto'));
-elems.btnCalibA4.addEventListener('click',   () => setCalibMode('a4'));
+// 校正の基準長さ（mm）と名称（A4長辺297mm固定）
+function calibRefMm()   { return A4_LONG_MM; }
+function calibRefName() { return `A4用紙 (${A4_LONG_MM}mm)`; }
 
 // =====================================================================
 // カメラ開始・停止
@@ -483,20 +448,14 @@ function analyzeImage(canvas) {
   const calRef = detectReferenceObject(canvas);
   if (calRef) {
     state.calibPixelsPerMm = calRef.pixelsPerMm;
-    const typeName = calRef.type === 'card' ? `クレジットカード (${CARD_LONG_MM}mm)`
-                   : calRef.type === 'a4'   ? `A4用紙 (${A4_LONG_MM}mm)`
-                   : '500円硬貨 (26.5mm)';
     const calibNote = state.calibFromAutoLoad ? '（前回の画像から自動読込）' : '';
     elems.calibStatus.textContent = `自動校正完了 ${calibNote}: ${state.calibPixelsPerMm.toFixed(2)} px/mm`;
     elems.resCalib.textContent     = state.calibPixelsPerMm.toFixed(2);
-    log(`自動キャリブレーション [${typeName}]: ${state.calibPixelsPerMm.toFixed(2)} px/mm`, 'info');
+    log(`自動キャリブレーション [${calibRefName()}]: ${state.calibPixelsPerMm.toFixed(2)} px/mm`, 'info');
     state.calibFromAutoLoad = false;
     updateBladeCurveBtn();
   } else if (!state.calibPixelsPerMm) {
-    const failMsg = state.calibMode === 'a4'
-      ? 'A4用紙が検出できませんでした。用紙全体が映っているか確認してください。寸法はpx表示になります。'
-      : 'クレジットカード/コインが検出できませんでした。カードが画面に収まっているか確認してください。寸法はpx表示になります。';
-    log(failMsg, 'warn');
+    log('A4用紙が検出できませんでした。用紙全体が映っているか確認してください。寸法はpx表示になります。', 'warn');
   }
 
   buildEdgeImage(canvas, true);
@@ -525,114 +484,36 @@ function detectReferenceObject(tmpCanvas) {
 
     const imgArea = tmpCanvas.width * tmpCanvas.height;
 
-    // ── A4用紙モード ──────────────────────────────────────────────────
-    if (state.calibMode === 'a4') {
-      let bestA4 = null;
-      for (let i = 0; i < contours.size(); i++) {
-        const cnt = contours.get(i);
-        const area = cv.contourArea(cnt);
-        if (area < imgArea * 0.05 || area > imgArea * 0.95) { cnt.delete(); continue; }
-        const peri = cv.arcLength(cnt, true);
-        if (peri < 50) { cnt.delete(); continue; }
-        const rect = cv.minAreaRect(cnt);
-        const rw = Math.max(rect.size.width, rect.size.height);
-        const rh = Math.min(rect.size.width, rect.size.height);
-        if (rh < 20) { cnt.delete(); continue; }
-        const aspect = rw / rh;
-        // A4: 297/210 ≈ 1.414 、許容範囲 1.25–1.60
-        if (aspect >= 1.25 && aspect <= 1.60) {
-          const approx = new cv.Mat();
-          cv.approxPolyDP(cnt, approx, 0.03 * peri, true);
-          const corners = approx.rows;
-          approx.delete();
-          if (corners >= 4 && corners <= 20) {
-            if (!bestA4 || area > bestA4.area) {
-              bestA4 = {
-                type: 'a4',
-                area,
-                pixelsPerMm: rw / A4_LONG_MM,
-                pts: cv.RotatedRect.points(rect),
-              };
-            }
-          }
+    // A4用紙(長辺297mm)を最大の矩形輪郭として検出する
+    let bestA4 = null;
+    for (let i = 0; i < contours.size(); i++) {
+      const cnt = contours.get(i);
+      const area = cv.contourArea(cnt);
+      if (area < imgArea * 0.05 || area > imgArea * 0.95) { cnt.delete(); continue; }
+      const peri = cv.arcLength(cnt, true);
+      if (peri < 50) { cnt.delete(); continue; }
+      const rect = cv.minAreaRect(cnt);
+      const rw = Math.max(rect.size.width, rect.size.height);
+      const rh = Math.min(rect.size.width, rect.size.height);
+      if (rh < 20) { cnt.delete(); continue; }
+      const aspect = rw / rh;
+      // A4: 297/210 ≈ 1.414 、許容範囲 1.25–1.60
+      if (aspect >= 1.25 && aspect <= 1.60) {
+        const approx = new cv.Mat();
+        cv.approxPolyDP(cnt, approx, 0.03 * peri, true);
+        const corners = approx.rows;
+        approx.delete();
+        if (corners >= 4 && corners <= 20 && (!bestA4 || area > bestA4.area)) {
+          bestA4 = {
+            area,
+            pixelsPerMm: rw / A4_LONG_MM,
+            pts: cv.RotatedRect.points(rect),
+          };
         }
-        cnt.delete();
       }
-      return bestA4;
+      cnt.delete();
     }
-
-    // ── カード / 硬貨モード ────────────────────────────────────────────
-    let bestCard = null;
-    let bestCoin = null;
-
-    // カード検出を2パスで試みる：1パス目は標準、2パス目はより緩い条件
-    const passes = [
-      { minArea: 0.001, maxArea: 0.85, aspectMin: 1.2, aspectMax: 2.1, maxCorners: 10 },
-      { minArea: 0.0003, maxArea: 0.90, aspectMin: 1.0, aspectMax: 2.8, maxCorners: 14 },
-    ];
-
-    outer: for (const pass of passes) {
-      for (let i = 0; i < contours.size(); i++) {
-        const cnt = contours.get(i);
-        const area = cv.contourArea(cnt);
-
-        if (area < imgArea * pass.minArea || area > imgArea * pass.maxArea) { cnt.delete(); continue; }
-
-        const peri = cv.arcLength(cnt, true);
-        if (peri < 20) { cnt.delete(); continue; }
-
-        const circularity = 4 * Math.PI * area / (peri * peri);
-        const rect = cv.minAreaRect(cnt);
-        const rw = Math.max(rect.size.width, rect.size.height);
-        const rh = Math.min(rect.size.width, rect.size.height);
-        if (rh < 8) { cnt.delete(); continue; }
-        const aspect = rw / rh;
-
-        // クレジットカード: アスペクト比 ~1.586 (CARD_LONG_MM=85.6mm / 54mm)、矩形
-        if (aspect >= pass.aspectMin && aspect <= pass.aspectMax && circularity < 0.78) {
-          const approx = new cv.Mat();
-          cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
-          const corners = approx.rows;
-          approx.delete();
-          if (corners >= 4 && corners <= pass.maxCorners) {
-            const pts = cv.RotatedRect.points(rect);
-            // 長辺の両端点を特定（隣接する辺のうち長い方）
-            const d01 = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
-            const d12 = Math.hypot(pts[2].x - pts[1].x, pts[2].y - pts[1].y);
-            const longEdgePts = d01 >= d12 ? [pts[0], pts[1]] : [pts[1], pts[2]];
-            if (!bestCard || area > bestCard.area) {
-              bestCard = {
-                type: 'card',
-                area,
-                pixelsPerMm: rw / CARD_LONG_MM,
-                pts,
-                longEdgePts,
-              };
-            }
-          }
-        }
-
-        // 500円硬貨: 高い真円度 (>0.72)、アスペクト比ほぼ1
-        if (circularity > 0.72 && aspect < 1.3) {
-          const radiusPx = Math.sqrt(area / Math.PI);
-          if (!bestCoin || area > bestCoin.area) {
-            bestCoin = {
-              type: 'coin',
-              area,
-              pixelsPerMm: (radiusPx * 2) / 26.5,
-              radiusPx,
-              center: { x: rect.center.x, y: rect.center.y },
-            };
-          }
-        }
-
-        cnt.delete();
-      }
-      // 1パス目でカードが見つかれば2パス目は不要
-      if (bestCard) break outer;
-    }
-
-    return bestCard || bestCoin || null;
+    return bestA4;
   } catch (_) {
     return null;
   } finally {
@@ -1067,7 +948,7 @@ function redrawManualBladeOverlay() {
     ctx.fillStyle = '#ff2222'; ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 14;
     ctx.beginPath(); ctx.arc(mb.ago.imgX, mb.ago.imgY, r, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
-    if (state.edgeCardCalib.step === 4) drawEdgeCardCalibOverlay();
+    if (state.edgeCalib.step === 4) drawEdgeCalibOverlay();
     return;
   }
   if (!mb.ago || !mb.kissaki) return;
@@ -1092,8 +973,8 @@ function redrawManualBladeOverlay() {
     elems.bladeCurveStatus.textContent = `✓ 手動指定 (${bladeDotCount(pts)}点) ${lenMm.toFixed(1)} mm${curveStr}`;
     elems.bladeCurveStatus.classList.remove('hidden');
   }
-  // カード校正が完了済みなら校正オーバーレイをブレード曲線の上に重ねて表示
-  if (state.edgeCardCalib.step === 4) drawEdgeCardCalibOverlay();
+  // 3点校正が完了済みなら校正オーバーレイをブレード曲線の上に重ねて表示
+  if (state.edgeCalib.step === 4) drawEdgeCalibOverlay();
 }
 
 function updateHint(elem, text) {
@@ -1105,11 +986,11 @@ function updateHint(elem, text) {
 function updateManualBladeHint(text) { updateHint(elems.manualBladeHint, text); }
 
 function startManualBladeSelect() {
-  // カード校正が進行中なら中断してUIを戻す
-  if (state.edgeCardCalib.step >= 1 && state.edgeCardCalib.step <= 3) {
-    state.edgeCardCalib = { step: 0, pts: [], dragging: null };
-    elems.btnEdgeCardCalib?.classList.remove('hidden');
-    elems.btnEdgeCardCalibReset?.classList.add('hidden');
+  // 3点校正が進行中なら中断してUIを戻す
+  if (state.edgeCalib.step >= 1 && state.edgeCalib.step <= 3) {
+    state.edgeCalib = { step: 0, pts: [], dragging: null };
+    elems.btnEdgeCalib?.classList.remove('hidden');
+    elems.btnEdgeCalibReset?.classList.add('hidden');
     updateEdgeCalibHint(null);
   }
   state.manualBlade = { step: 1, ago: null, kissaki: null, dragging: null };
@@ -1134,13 +1015,13 @@ function edgeCanvasCoords(e) {
 
 function onEdgePointerDown(e) {
   // step1-3: 校正点をタップで配置
-  if (state.edgeCardCalib.step >= 1 && state.edgeCardCalib.step <= 3) {
-    handleEdgeCardCalibClick(e);
+  if (state.edgeCalib.step >= 1 && state.edgeCalib.step <= 3) {
+    handleEdgeCalibClick(e);
     return;
   }
   // step4: 校正点をドラッグ（ヒットしなければブレードモードへ通す）
-  if (state.edgeCardCalib.step === 4) {
-    const ec = state.edgeCardCalib;
+  if (state.edgeCalib.step === 4) {
+    const ec = state.edgeCalib;
     const canvas = elems.resultProcessedCanvas;
     const { x, y } = edgeCanvasCoords(e);
     const HIT_R = Math.max(30, canvas.width / 25);
@@ -1203,14 +1084,14 @@ function onEdgePointerDown(e) {
 }
 
 function onEdgePointerMove(e) {
-  // カード校正点ドラッグ
-  if (state.edgeCardCalib.dragging !== null) {
+  // 3点校正点ドラッグ
+  if (state.edgeCalib.dragging !== null) {
     e.preventDefault();
-    const ec = state.edgeCardCalib;
+    const ec = state.edgeCalib;
     const canvas = elems.resultProcessedCanvas;
     const { x, y } = edgeCanvasCoords(e);
     ec.pts[ec.dragging] = snapToEdge(canvas, x, y, 40);
-    applyEdgeCardCalib(true);
+    applyEdgeCalib(true);
     return;
   }
   // ブレード点ドラッグ
@@ -1227,15 +1108,15 @@ function onEdgePointerMove(e) {
 
 function onEdgePointerUp() {
   state.manualBlade.dragging = null;
-  // カード校正ドラッグ終了 → 曲線を最終再計算
-  if (state.edgeCardCalib.dragging !== null) {
-    state.edgeCardCalib.dragging = null;
-    applyEdgeCardCalib(false);
+  // 3点校正ドラッグ終了 → 曲線を最終再計算
+  if (state.edgeCalib.dragging !== null) {
+    state.edgeCalib.dragging = null;
+    applyEdgeCalib(false);
   }
 }
 
 // =====================================================================
-// エッジ画像でのカード短辺3点校正
+// エッジ画像での短辺3点校正
 // =====================================================================
 
 function perpendicularFoot(p1, p2, p3) {
@@ -1248,10 +1129,10 @@ function perpendicularFoot(p1, p2, p3) {
 
 function updateEdgeCalibHint(text) { updateHint(elems.edgeCalibHint, text); }
 
-function drawEdgeCardCalibOverlay() {
+function drawEdgeCalibOverlay() {
   const canvas = elems.resultProcessedCanvas;
   if (!canvas) return;
-  const ec = state.edgeCardCalib;
+  const ec = state.edgeCalib;
   if (!ec.pts.length) return;
   const ctx = canvas.getContext('2d');
   const scale  = Math.max(canvas.width, canvas.height) / 1000;
@@ -1381,7 +1262,7 @@ function drawEdgeCardCalibOverlay() {
   ctx.restore();
 }
 
-function startEdgeCardCalib() {
+function startEdgeCalib() {
   if (!state.edgeCanvasImageData) {
     log('先に画像を撮影・解析してください。', 'warn');
     return;
@@ -1394,27 +1275,27 @@ function startEdgeCardCalib() {
     elems.btnManualBladeReset?.classList.add('hidden');
     updateManualBladeHint(null);
   }
-  state.edgeCardCalib = { step: 1, pts: [], dragging: null };
+  state.edgeCalib = { step: 1, pts: [], dragging: null };
   const canvas = elems.resultProcessedCanvas;
   if (canvas) {
     canvas.getContext('2d').putImageData(state.edgeCanvasImageData, 0, 0);
   }
-  elems.btnEdgeCardCalib?.classList.add('hidden');
-  elems.btnEdgeCardCalibReset?.classList.remove('hidden');
-  const refEdge = state.calibMode === 'a4' ? 'A4用紙の短辺' : 'カード短辺';
+  elems.btnEdgeCalib?.classList.add('hidden');
+  elems.btnEdgeCalibReset?.classList.remove('hidden');
+  const refEdge = 'A4用紙の短辺';
   updateEdgeCalibHint(`① ${refEdge}の1点目をタップ →`);
 }
 
-function handleEdgeCardCalibClick(e) {
-  const ec = state.edgeCardCalib;
+function handleEdgeCalibClick(e) {
+  const ec = state.edgeCalib;
   const canvas = elems.resultProcessedCanvas;
   const { x, y } = edgeCanvasCoords(e);
   const snapped = snapToEdge(canvas, x, y, 30);
   const refreshCanvas = () => {
     canvas.getContext('2d').putImageData(state.edgeCanvasImageData, 0, 0);
-    drawEdgeCardCalibOverlay();
+    drawEdgeCalibOverlay();
   };
-  const refEdge = state.calibMode === 'a4' ? 'A4用紙の短辺' : 'カード短辺';
+  const refEdge = 'A4用紙の短辺';
 
   if (ec.step === 1) {
     ec.pts = [snapped];
@@ -1445,14 +1326,14 @@ function handleEdgeCardCalibClick(e) {
       return;
     }
     ec.step = 4;
-    applyEdgeCardCalib(false);
+    applyEdgeCalib(false);
   }
 }
 
 // 校正計算・UI更新・再描画の共通処理
 // isDragging=true: ドラッグ中（軽量再描画）/ false: 確定（完全再計算）
-function applyEdgeCardCalib(isDragging) {
-  const ec = state.edgeCardCalib;
+function applyEdgeCalib(isDragging) {
+  const ec = state.edgeCalib;
   if (ec.pts.length < 3) return;
   const [p1, p2, p3] = ec.pts;
   const foot    = perpendicularFoot(p1, p2, p3);
@@ -1478,7 +1359,7 @@ function applyEdgeCardCalib(isDragging) {
   } else {
     canvas.getContext('2d').putImageData(state.edgeCanvasImageData, 0, 0);
   }
-  drawEdgeCardCalibOverlay();
+  drawEdgeCalibOverlay();
 
   if (!isDragging) {
     log(`エッジ3点校正完了 [${calibRefName()}]: ${newPpm.toFixed(2)} px/mm (${distPx.toFixed(0)} px = ${calibRefMm()} mm)`, 'detect');
@@ -1722,8 +1603,8 @@ elems.bladeDotInterval?.addEventListener('input', () => {
 // =====================================================================
 elems.btnManualBlade?.addEventListener('click', startManualBladeSelect);
 elems.btnManualBladeReset?.addEventListener('click', startManualBladeSelect); // reset = restart from step 1
-elems.btnEdgeCardCalib?.addEventListener('click', startEdgeCardCalib);
-elems.btnEdgeCardCalibReset?.addEventListener('click', startEdgeCardCalib); // reset = restart from step 1
+elems.btnEdgeCalib?.addEventListener('click', startEdgeCalib);
+elems.btnEdgeCalibReset?.addEventListener('click', startEdgeCalib); // reset = restart from step 1
 elems.resultProcessedCanvas?.addEventListener('pointerdown', onEdgePointerDown);
 elems.resultProcessedCanvas?.addEventListener('pointermove', onEdgePointerMove, { passive: false });
 elems.resultProcessedCanvas?.addEventListener('pointerup', onEdgePointerUp);
@@ -1746,15 +1627,15 @@ elems.btnSaveImage.addEventListener('click', () => {
 // 画像固有のアノテーション状態（手動アゴ・切先、3点校正、刃渡り曲線）をクリア
 function resetImageAnnotations() {
   state.manualBlade       = { step: 0, ago: null, kissaki: null, dragging: null };
-  state.edgeCardCalib     = { step: 0, pts: [], dragging: null };
+  state.edgeCalib     = { step: 0, pts: [], dragging: null };
   state.lastBladeCurvePts = null;
 
   elems.resultProcessedCanvas.classList.remove('manual-selecting');
   elems.btnManualBlade.classList.remove('hidden');
   elems.btnManualBladeReset.classList.add('hidden');
   updateManualBladeHint(null);
-  elems.btnEdgeCardCalib.classList.remove('hidden');
-  elems.btnEdgeCardCalibReset.classList.add('hidden');
+  elems.btnEdgeCalib.classList.remove('hidden');
+  elems.btnEdgeCalibReset.classList.add('hidden');
   updateEdgeCalibHint(null);
 
   elems.resCurveLength.textContent = '--';
