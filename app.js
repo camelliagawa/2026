@@ -1648,13 +1648,19 @@ function getBladeParams() {
 
 function computeBlade6ColData(pts, intervalMm, xConst) {
   const sampled = sampleByMm(pts, intervalMm);
+  // sampleByMm は末尾の切先(pts[last])を落とすことがある。弦の基準角度と
+  // 曲線終端を実際の切先に合わせるため、欠けていれば必ず追加する。
+  // これを怠ると画像オーバーレイ(アゴ→実切先基準)と微妙に角度がズレる。
+  const tip = pts[pts.length - 1];
+  if (sampled[sampled.length - 1] !== tip) sampled.push(tip);
   if (sampled.length < 2) return [];
 
   // 撮影時の傾きを除去するため、アゴ→切先 を結ぶ弦を基準軸(Y)に合わせる。
   // 弦方向の成分を u(=Y)、弦に垂直な成分(刃の反り)を v(=-Z) として、
   // カメラ・用紙の傾きに依存しない包丁固有の座標系に変換する。
-  const first = sampled[0];
-  const last  = sampled[sampled.length - 1];
+  // 基準は実際のアゴ(pts[0])・切先(pts[last])を使い、画像側と完全一致させる。
+  const first = pts[0];
+  const last  = tip;
   const theta = Math.atan2(last.yMm - first.yMm, last.xMm - first.xMm);
   const cos = Math.cos(theta), sin = Math.sin(theta);
   const uv = sampled.map(p => {
