@@ -1829,6 +1829,18 @@ log('OpenCV.js を読み込み中...', 'info');
   let viewer = null;
   const arrowsChk = document.getElementById('csv3d-show-arrows');
 
+  // 「刃先形状をエッジ曲線に合わせる」補正のトグル状態。
+  // 補正前の刃先形状データを保持し、再クリック(キャンセル)で元に戻す。
+  let alignBackup = null;
+  function resetAlignBtn() {
+    alignBackup = null;
+    const btn = document.getElementById('csv3d-align-to-edge');
+    if (!btn) return;
+    btn.textContent = '📐 刃先形状をエッジ曲線に合わせる';
+    btn.classList.remove('btn-danger');
+    btn.classList.add('btn-secondary');
+  }
+
   function loadThree(cb) {
     if (typeof THREE !== 'undefined') { cb(); return; }
     const s = document.createElement('script');
@@ -2189,6 +2201,7 @@ log('OpenCV.js を読み込み中...', 'info');
         slots[i].data = data;
         slots[i].name = file.name;
         slots[i].visible = true;
+        resetAlignBtn(); // データが変わったので補正状態をリセット
         updateSlotUI(i);
         updateInfo();
         const sa = arrowsChk ? arrowsChk.checked : true;
@@ -2215,6 +2228,7 @@ log('OpenCV.js を読み込み中...', 'info');
       slots[i].data = null;
       slots[i].name = '';
       slots[i].visible = true;
+      resetAlignBtn(); // データが消えたので補正状態をリセット
       const fi = document.querySelector(`#csv3d-slot-${i} input[type=file]`);
       if (fi) fi.value = '';
       updateSlotUI(i);
@@ -2258,14 +2272,28 @@ log('OpenCV.js を読み込み中...', 'info');
     slots[slotIndex].data = data;
     slots[slotIndex].name = name;
     slots[slotIndex].visible = true;
+    resetAlignBtn(); // 新しいデータが入ったので補正状態をリセット
     updateSlotUI(slotIndex);
     updateInfo();
     const sa = arrowsChk ? arrowsChk.checked : true;
     openViewer(() => { buildSlot(slotIndex, sa); fitAllData(); });
   };
 
-  // ---- 刃先形状をエッジ曲線に合わせて補正 ----
+  // ---- 刃先形状をエッジ曲線に合わせて補正（トグル: 適用⇔キャンセル） ----
   document.getElementById('csv3d-align-to-edge')?.addEventListener('click', () => {
+    // すでに補正済みなら、再クリックで補正前の状態に戻す（キャンセル）。
+    // 補正は累積適用すると形状が崩れるため、適用は1回だけに制限する。
+    if (alignBackup) {
+      slots[0].data = alignBackup;
+      resetAlignBtn();
+      updateSlotUI(0);
+      updateInfo();
+      const sa = arrowsChk ? arrowsChk.checked : true;
+      openViewer(() => { buildSlot(0, sa); fitAllData(); });
+      log('刃先形状の補正をキャンセルしました', 'info');
+      return;
+    }
+
     const bladeData = slots[0].data;
     const edgeData  = slots[1].data;
     if (!bladeData || !edgeData || bladeData.length < 2 || edgeData.length < 2) {
@@ -2322,6 +2350,9 @@ log('OpenCV.js を読み込み中...', 'info');
     const q      = new THREE.Quaternion();
     const offset = new THREE.Vector3();
 
+    // 補正前データを退避（キャンセル用）。map は新規オブジェクトを生成するため
+    // 元配列の各点は変更されず、そのまま復元に使える。
+    alignBackup = bladeData;
     slots[0].data = bladeData.map(p => {
       const yNew    = mapY(p.y);
       const dz      = lerpEdgeZ(yNew);
@@ -2333,6 +2364,14 @@ log('OpenCV.js を読み込み中...', 'info');
       offset.applyQuaternion(q);
       return { ...p, x: offset.x, y: yNew + offset.y, z: dz + offset.z };
     });
+
+    // ボタンをキャンセル表示に切り替える
+    const btn = document.getElementById('csv3d-align-to-edge');
+    if (btn) {
+      btn.textContent = '✕ 補正をキャンセル';
+      btn.classList.remove('btn-secondary');
+      btn.classList.add('btn-danger');
+    }
 
     updateSlotUI(0);
     updateInfo();
@@ -2412,6 +2451,7 @@ log('OpenCV.js を読み込み中...', 'info');
     slots[1].data    = data;
     slots[1].name    = 'エッジ曲線';
     slots[1].visible = true;
+    resetAlignBtn(); // エッジ曲線が更新されたので補正状態をリセット
     updateSlotUI(1);
     updateInfo();
     const sa = arrowsChk ? arrowsChk.checked : true;
