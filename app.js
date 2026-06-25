@@ -1649,19 +1649,33 @@ function getBladeParams() {
 function computeBlade6ColData(pts, intervalMm, xConst) {
   const sampled = sampleByMm(pts, intervalMm);
   if (sampled.length < 2) return [];
-  return sampled.map((p, i) => {
-    const y = p.xMm;
-    const z = -p.yMm;
+
+  // 撮影時の傾きを除去するため、アゴ→切先 を結ぶ弦を基準軸(Y)に合わせる。
+  // 弦方向の成分を u(=Y)、弦に垂直な成分(刃の反り)を v(=-Z) として、
+  // カメラ・用紙の傾きに依存しない包丁固有の座標系に変換する。
+  const first = sampled[0];
+  const last  = sampled[sampled.length - 1];
+  const theta = Math.atan2(last.yMm - first.yMm, last.xMm - first.xMm);
+  const cos = Math.cos(theta), sin = Math.sin(theta);
+  const uv = sampled.map(p => {
+    const ox = p.xMm - first.xMm;
+    const oy = p.yMm - first.yMm;
+    return { u: ox * cos + oy * sin, v: -ox * sin + oy * cos };
+  });
+
+  return uv.map((p, i) => {
+    const y = p.u;
+    const z = -p.v;
     let dy, dz;
     if (i === 0) {
-      dy = sampled[1].xMm - sampled[0].xMm;
-      dz = -(sampled[1].yMm - sampled[0].yMm);
-    } else if (i === sampled.length - 1) {
-      dy = sampled[i].xMm - sampled[i - 1].xMm;
-      dz = -(sampled[i].yMm - sampled[i - 1].yMm);
+      dy = uv[1].u - uv[0].u;
+      dz = -(uv[1].v - uv[0].v);
+    } else if (i === uv.length - 1) {
+      dy = uv[i].u - uv[i - 1].u;
+      dz = -(uv[i].v - uv[i - 1].v);
     } else {
-      dy = sampled[i + 1].xMm - sampled[i - 1].xMm;
-      dz = -(sampled[i + 1].yMm - sampled[i - 1].yMm);
+      dy = uv[i + 1].u - uv[i - 1].u;
+      dz = -(uv[i + 1].v - uv[i - 1].v);
     }
     const ds = Math.sqrt(dy * dy + dz * dz);
     const ry = ds > 0 ? dy / ds : 1;
