@@ -1693,6 +1693,35 @@ elems.btnPreviewCurve3d.addEventListener('click', () => {
   if (typeof window.csv3dSetEdgeCurve === 'function') {
     window.csv3dSetEdgeCurve(data);
   }
+  // 包丁エッジ画像を3Dに重ねる。エッジ曲線と同じ座標変換でピクセル→ワールドへ
+  // 写像するため、アゴ・切先が3D曲線と完全に一致する。
+  if (typeof window.csv3dSetEdgeImage === 'function') {
+    const img = state.edgeCanvasImageData;
+    const ppm = state.calibPixelsPerMm;
+    if (img && ppm && pts.length >= 2) {
+      const ago = pts[0], kis = pts[pts.length - 1];
+      const ax = ago.imgX, ay = ago.imgY;
+      const signX = kis.imgX >= ax ? 1 : -1;
+      const theta = Math.atan2(kis.imgY - ay, signX * (kis.imgX - ax));
+      const cos = Math.cos(theta), sin = Math.sin(theta);
+      const worldFromPixel = (px, py) => {
+        const xMm = signX * (px - ax) / ppm;
+        const yMm = (py - ay) / ppm;
+        return [0, xMm * cos + yMm * sin, -(-xMm * sin + yMm * cos)];
+      };
+      const cnv = document.createElement('canvas');
+      cnv.width = img.width; cnv.height = img.height;
+      cnv.getContext('2d').putImageData(img, 0, 0);
+      const W = img.width, H = img.height;
+      window.csv3dSetEdgeImage({
+        canvas: cnv,
+        corners: [worldFromPixel(0, 0), worldFromPixel(W, 0),
+                  worldFromPixel(W, H), worldFromPixel(0, H)],
+      });
+    } else {
+      window.csv3dSetEdgeImage(null);
+    }
+  }
   const tab3d = document.querySelector('.tab-btn[data-tab="csv3d"]');
   if (tab3d) tab3d.click();
 });
@@ -1828,6 +1857,55 @@ log('OpenCV.js を読み込み中...', 'info');
   ];
   let viewer = null;
   const arrowsChk = document.getElementById('csv3d-show-arrows');
+
+  // 包丁エッジ画像を3Dに重ねるオーバーレイ。アゴ・切先を3D曲線に一致させ、
+  // 生成CSV(刃先形状/エッジ曲線)が実物形状とどれだけ合っているか目視確認する。
+  let edgeImageMesh = null;
+  let edgeImagePayload = null;
+  const edgeImageChk = document.getElementById('csv3d-show-knife-img');
+  let edgeImageVisible = edgeImageChk ? edgeImageChk.checked : true;
+
+  function disposeEdgeImage() {
+    if (!edgeImageMesh) return;
+    edgeImageMesh.geometry && edgeImageMesh.geometry.dispose();
+    if (edgeImageMesh.material) {
+      edgeImageMesh.material.map && edgeImageMesh.material.map.dispose();
+      edgeImageMesh.material.dispose();
+    }
+    edgeImageMesh.parent && edgeImageMesh.parent.remove(edgeImageMesh);
+    edgeImageMesh = null;
+  }
+
+  function buildEdgeImage() {
+    disposeEdgeImage();
+    if (!viewer || !edgeImagePayload) return;
+    const { canvas, corners } = edgeImagePayload; // corners: TL,TR,BR,BL の [x,y,z]
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.minFilter = THREE.LinearFilter;
+    const c = corners;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+      ...c[0], ...c[1], ...c[2],
+      ...c[0], ...c[2], ...c[3],
+    ]), 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array([
+      0, 1, 1, 1, 1, 0,
+      0, 1, 1, 0, 0, 0,
+    ]), 2));
+    // 黒背景・白エッジの画像。加算合成で黒は透明・白線のみ重なる。
+    const mat = new THREE.MeshBasicMaterial({
+      map: tex, transparent: true, blending: THREE.AdditiveBlending,
+      depthWrite: false, side: THREE.DoubleSide,
+    });
+    edgeImageMesh = new THREE.Mesh(geo, mat);
+    edgeImageMesh.visible = edgeImageVisible;
+    viewer.scene.add(edgeImageMesh);
+  }
+
+  edgeImageChk?.addEventListener('change', () => {
+    edgeImageVisible = edgeImageChk.checked;
+    if (edgeImageMesh) edgeImageMesh.visible = edgeImageVisible;
+  });
 
   // 「刃先形状をエッジ曲線に合わせる」補正のトグル状態。
   // 補正前の刃先形状データを保持し、再クリック(キャンセル)で元に戻す。
@@ -2003,7 +2081,7 @@ log('OpenCV.js を読み込み中...', 'info');
       camera.updateProjectionMatrix();
     }).observe(wrap);
 
-    viewer = { camera, o, place, slotGroups,
+    viewer = { camera, o, place, slotGroups, scene,
       setAxisLen(len) {
         axLen = len;
         axArrows.forEach(a => a.setLength(len, len * 0.2, len * 0.12));
@@ -2229,6 +2307,7 @@ log('OpenCV.js を読み込み中...', 'info');
       slots[i].name = '';
       slots[i].visible = true;
       resetAlignBtn(); // データが消えたので補正状態をリセット
+      if (i === 1) { edgeImagePayload = null; disposeEdgeImage(); } // 包丁画像も外す
       const fi = document.querySelector(`#csv3d-slot-${i} input[type=file]`);
       if (fi) fi.value = '';
       updateSlotUI(i);
@@ -2456,6 +2535,14 @@ log('OpenCV.js を読み込み中...', 'info');
     updateInfo();
     const sa = arrowsChk ? arrowsChk.checked : true;
     openViewer(() => { buildSlot(1, sa); fitAllData(); });
+  };
+
+  // ---- 包丁エッジ画像オーバーレイの差し込み ----
+  // payload = { canvas, corners[TL,TR,BR,BL] } / null でクリア
+  window.csv3dSetEdgeImage = function (payload) {
+    edgeImagePayload = payload || null;
+    if (!edgeImagePayload) { disposeEdgeImage(); return; }
+    openViewer(() => { buildEdgeImage(); });
   };
 })();
 
