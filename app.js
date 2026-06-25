@@ -2507,6 +2507,93 @@ log('OpenCV.js を読み込み中...', 'info');
 
   document.getElementById('csv3d-export-both')?.addEventListener('click', exportCombinedCsv);
 
+  // ---- RoboDK向けに包丁画像を出力（点群PLY + テクスチャ平面OBJ/MTL/PNG） ----
+  // 研磨ルートCSVと同一座標系(mm・アゴ原点・x≈0平面)で書き出すため、RoboDKで
+  // ルートと同じ親フレームに配置すれば、画像が把持した刃にそのまま重なる。
+  function downloadBlob(filename, data, mime) {
+    const blob = data instanceof Blob ? data : new Blob([data], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function exportRoboDKAssets() {
+    if (!edgeImagePayload) {
+      log('先に「3Dビューアで表示」で包丁画像を読み込んでください', 'warn');
+      return;
+    }
+    const { canvas, corners } = edgeImagePayload;
+    const W = canvas.width, H = canvas.height;
+    const img = canvas.getContext('2d').getImageData(0, 0, W, H).data;
+
+    // ピクセル→ワールド(mm) アフィン写像（オーバーレイと同一）。corners=[TL,TR,BR,BL]
+    const [TL, TR, BR, BL] = corners;
+    const worldAt = (px, py) => {
+      const fx = px / W, fy = py / H;
+      const tx = TL[0] + (TR[0] - TL[0]) * fx, ty = TL[1] + (TR[1] - TL[1]) * fx, tz = TL[2] + (TR[2] - TL[2]) * fx;
+      const bx = BL[0] + (BR[0] - BL[0]) * fx, by = BL[1] + (BR[1] - BL[1]) * fx, bz = BL[2] + (BR[2] - BL[2]) * fx;
+      return [tx + (bx - tx) * fy, ty + (by - ty) * fy, tz + (bz - tz) * fy];
+    };
+
+    // 刃まわりに絞るクロップ箱（エッジ曲線の範囲から算出）。用紙枠やノイズを除く。
+    let yLo = -Infinity, yHi = Infinity, zHalf = Infinity;
+    const ec = slots[1].data || [];
+    if (ec.length >= 2) {
+      const ys = ec.map(p => p.y);
+      const yMin = Math.min(...ys), yMax = Math.max(...ys);
+      const chord = (yMax - yMin) || 100;
+      yLo = yMin - chord * 1.3;  // 柄側に余裕
+      yHi = yMax + chord * 0.2;  // 切先側に余裕
+      zHalf = chord * 0.6;       // 刃幅方向(両側)
+    }
+
+    // (1) 点群PLY: 白いエッジ画素のみをクロップして3D点に
+    const pts = [];
+    for (let py = 0; py < H; py++) {
+      for (let px = 0; px < W; px++) {
+        const i = (py * W + px) * 4;
+        if (img[i] <= 60 && img[i + 1] <= 60 && img[i + 2] <= 60) continue; // 黒(背景)除外
+        const w = worldAt(px + 0.5, py + 0.5);
+        if (w[1] < yLo || w[1] > yHi || Math.abs(w[2]) > zHalf) continue;
+        pts.push(w);
+      }
+    }
+    const ply = `ply\nformat ascii 1.0\nelement vertex ${pts.length}\n` +
+      `property float x\nproperty float y\nproperty float z\nend_header\n` +
+      pts.map(p => `${p[0].toFixed(3)} ${p[1].toFixed(3)} ${p[2].toFixed(3)}`).join('\n') + '\n';
+    downloadBlob('knife-overlay.ply', ply, 'text/plain');
+
+    // (2) テクスチャ平面 OBJ + MTL + PNG（黒背景を透明にした画像を貼る）
+    const base = 'knife-overlay';
+    const v = c => `v ${c[0].toFixed(4)} ${c[1].toFixed(4)} ${c[2].toFixed(4)}`;
+    const obj = [
+      `mtllib ${base}.mtl`, 'usemtl knife',
+      v(TL), v(TR), v(BR), v(BL),
+      'vt 0 1', 'vt 1 1', 'vt 1 0', 'vt 0 0',
+      'f 1/1 2/2 3/3', 'f 1/1 3/3 4/4',
+    ].join('\n') + '\n';
+    downloadBlob(`${base}.obj`, obj, 'text/plain');
+    downloadBlob(`${base}.mtl`,
+      `newmtl knife\nKd 1 1 1\nd 1\nmap_Kd ${base}.png\nmap_d ${base}.png\n`, 'text/plain');
+
+    const oc = document.createElement('canvas');
+    oc.width = W; oc.height = H;
+    const octx = oc.getContext('2d');
+    const out = octx.createImageData(W, H);
+    for (let k = 0; k < W * H; k++) {
+      const i = k * 4;
+      out.data[i] = out.data[i + 1] = out.data[i + 2] = 255;
+      out.data[i + 3] = Math.max(img[i], img[i + 1], img[i + 2]); // 明るさ=アルファ(白線のみ不透明)
+    }
+    octx.putImageData(out, 0, 0);
+    oc.toBlob(b => downloadBlob(`${base}.png`, b, 'image/png'), 'image/png');
+
+    log(`RoboDK用に出力: 点群 ${pts.length}点(knife-overlay.ply) + テクスチャ平面(knife-overlay.obj/.mtl/.png)。研磨ルートCSVと同一座標系・mm。RoboDKでルートと同じ親フレームに配置すると重なります。`, 'info');
+  }
+
+  document.getElementById('csv3d-export-robodk')?.addEventListener('click', exportRoboDKAssets);
+
   // ---- エッジ曲線専用スロット（slot 2）への読み込み ----
   window.csv3dSetEdgeCurve = function (data) {
     slots[1].data    = data;
